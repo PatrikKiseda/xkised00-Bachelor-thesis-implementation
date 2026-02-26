@@ -1,0 +1,18 @@
+[project]
+name = "rag-thesis-app"
+version = "0.1.0"
+description = "RAG thesis application"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.133.1",
+    "litellm>=1.81.15",
+    "pydantic-settings>=2.13.1",
+    "python-multipart>=0.0.22",
+    "qdrant-client>=1.17.0",
+    "uvicorn>=0.41.0",
+]
+
+[tool.uv]
+package = false
+
