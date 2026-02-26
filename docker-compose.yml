@@ -1,0 +1,17 @@
+# Author: Patrik Kiseda
+# File: docker-compose.yml
+# Description: Minimal local Docker Compose setup for Qdrant.
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: rag-qdrant-local
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+volumes:
+  qdrant_storage:

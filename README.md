@@ -69,3 +69,19 @@ The `src/app` directory is split into modules with different responsibilities th
 - `models/`
   - request/response schemas and typed models
 
+## Qdrant
+
+- `docker-compose.yml` with a `qdrant` service
+- `scripts/check_qdrant_connectivity.py` used to verify the local Qdrant instance is reachable
+- `Makefile` commands to start/stop/log/check Qdrant
+
+### Local usage
+
+1. Start Qdrant:
+   - `make qdrant-up`
+2. Check connectivity:
+   - `make qdrant-check`
+3. View logs (optional):
+   - `make qdrant-logs`
+4. Stop Qdrant:
+   - `make qdrant-down`
