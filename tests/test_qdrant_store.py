@@ -16,6 +16,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from app.core.settings import Settings
 from app.storage.qdrant_store import QdrantStore
 
+# _build_settings: creates a validated baseline settings object for tests.
+def _build_settings(**overrides: object) -> Settings:
+    payload = {
+        "qdrant_url": "http://127.0.0.1:6333",
+        "qdrant_collection": "documents",
+        "litellm_model": "openai/gpt-4o-mini",
+        "embedding_provider": "local",
+        "embedding_model": "text-embedding-3-small",
+    }
+    payload.update(overrides)
+    return Settings(**payload)
 
 # _WorkingClient: test double that simulates successful Qdrant calls.
 class _WorkingClient:
@@ -53,7 +64,7 @@ class TestQdrantStore(unittest.TestCase):
 
     # test_from_settings_uses_expected_client_configuration: validates env -> client mapping.
     def test_from_settings_uses_expected_client_configuration(self) -> None:
-        settings = Settings(
+        settings = _build_settings(
             qdrant_url="http://qdrant.local:6333",
             qdrant_api_key="secret",
             qdrant_timeout_seconds=9.5,
