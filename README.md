@@ -72,8 +72,22 @@ The `src/app` directory is split into modules with different responsibilities th
 ## Qdrant
 
 - `docker-compose.yml` with a `qdrant` service
-- `scripts/check_qdrant_connectivity.py` used to verify the local Qdrant instance is reachable
+- `scripts/qdrant_connectivity_check.py` used to verify the local Qdrant instance is reachable
 - `Makefile` commands to start/stop/log/check Qdrant
+
+## SQLite metadata schema 
+
+The app initializes the local SQLite metadata schema during startup (`create_app`).
+
+- schema initializer: `src/app/storage/sqlite_schema.py`
+- configurable DB path: `SQLITE_PATH` (default: `./data/app.db`)
+- tables:
+  - `documents`
+  - `chunks`
+  - `jobs`
+  - `chunks_fts` (FTS5 virtual table for lexical search placeholders)
+
+This creates the local metadata/job-tracking foundation for upcoming ingestion and reindex flows.
 
 ### Local usage
 

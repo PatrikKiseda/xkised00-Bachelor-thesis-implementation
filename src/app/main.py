@@ -13,6 +13,7 @@ from fastapi import FastAPI
 
 from app.core.settings import Settings, get_settings
 from app.storage.qdrant_store import QdrantStore
+from app.storage.sqlite_schema import initialize_sqlite_schema
 
 # StoreFactory: typed factory contract used for dependency injection in tests/startup.
 StoreFactory = Callable[[Settings], QdrantStore]
@@ -29,10 +30,12 @@ def create_app(
     # lifespan: initializes Qdrant store at startup and stores initial reachability state. see https://fastapi.tiangolo.com/advanced/events/#lifespan.
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        sqlite_db_path = initialize_sqlite_schema(resolved_settings.sqlite_path)
         qdrant_store = resolved_store_factory(resolved_settings)
         startup_status = qdrant_store.check_connection()
 
         app.state.settings = resolved_settings
+        app.state.sqlite_db_path = str(sqlite_db_path)
         app.state.qdrant_store = qdrant_store
         app.state.qdrant_reachable_on_startup = startup_status.reachable
         app.state.qdrant_startup_error = startup_status.error
@@ -56,6 +59,10 @@ def create_app(
                 "reachable_on_startup": app.state.qdrant_reachable_on_startup,
                 "startup_error": app.state.qdrant_startup_error,
                 "last_error": current_status.error,
+            },
+            "sqlite": {
+                "path": app.state.sqlite_db_path,
+                "schema_initialized": True,
             },
         }
 

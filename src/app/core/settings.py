@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     qdrant_api_key: str | None = None
     qdrant_timeout_seconds: float = 3.0
     qdrant_collection: str = Field(..., description="Qdrant collection used by the app")
+    sqlite_path: str = "./data/app.db"
 
     # Model config (critical fields are required and validated).
     litellm_model: str = Field(..., description="Generation model, e.g. openai/gpt-4o-mini")
@@ -62,6 +63,7 @@ class Settings(BaseSettings):
         "litellm_model",
         "embedding_provider",
         "embedding_model",
+        "sqlite_path",
     )
     @classmethod
     def validate_non_empty_critical_strings(cls, value: str) -> str:
