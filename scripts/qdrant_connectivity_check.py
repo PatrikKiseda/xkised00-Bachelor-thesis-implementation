@@ -1,33 +1,39 @@
 """
 Author: Patrik Kiseda
 File: scripts/check_qdrant_connectivity.py
-Description: Very simple local connectivity check for Qdrant running in Docker on localhost.
+Description: Connectivity check that reuses the qdrant_store wrapper.
 """
 
 from __future__ import annotations
-from qdrant_client import QdrantClient
-
-import os
 import sys
+from pathlib import Path
 
 
+# make sure we can import from src.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_PATH = PROJECT_ROOT / "src"
+if str(SRC_PATH) not in sys.path:
+    sys.path.insert(0, str(SRC_PATH))
+
+from app.core.settings import get_settings
+from app.storage.qdrant_store import QdrantStore
+
+# main: entrypoint to check Qdrant reachability.
 def main() -> int:
-    qdrant_url = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
+    settings = get_settings()
+    store = QdrantStore.from_settings(settings)
+    status = store.check_connection()
 
-    try:
-        client = QdrantClient(url=qdrant_url, timeout=3.0)
-        collections = client.get_collections()
-        count = len(collections.collections)
-    except Exception as exc:  # pragma: no extra handling - simple CLI check
-        print(f"[FAIL] Could not connect to Qdrant at {qdrant_url}")
-        print(f"Reason: {exc}")
+    if not status.reachable:
+        print(f"[FAIL] Could not connect to Qdrant at {settings.qdrant_url}")
+        print(f"Reason: {status.error}")
         print("Tip: start it with `make qdrant-up` first.")
         return 1
 
-    print(f"[OK] Connected to Qdrant at {qdrant_url}")
-    print(f"Collections found: {count}")
+    print(f"[OK] Connected to Qdrant at {settings.qdrant_url}")
     return 0
 
 
+# __main__ guard: allows file execution as a standalone script.
 if __name__ == "__main__":
     sys.exit(main())
