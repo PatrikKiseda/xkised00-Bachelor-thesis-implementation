@@ -28,7 +28,7 @@ class QdrantStore:
     # from_settings: builds a configured Qdrant client using env-backed settings. See get_settings() in src/app/core/settings.py for details on how settings are loaded.
     def from_settings(cls, settings: Settings) -> "QdrantStore":
         client = QdrantClient(
-            url=settings.qdrant_url,
+            url=str(settings.qdrant_url),
             api_key=settings.qdrant_api_key,
             timeout=settings.qdrant_timeout_seconds,
         )
