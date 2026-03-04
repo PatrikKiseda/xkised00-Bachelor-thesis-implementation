@@ -31,6 +31,7 @@ def _build_settings(**overrides: object) -> Settings:
         "app_name": "test-app",
         "qdrant_url": "http://test-qdrant:6333",
         "qdrant_collection": "documents",
+        "sqlite_path": ":memory:",
         "litellm_model": "openai/gpt-4o-mini",
         "embedding_provider": "local",
         "embedding_model": "text-embedding-3-small",
@@ -69,6 +70,8 @@ class TestHealthEndpoint(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertTrue(payload["qdrant"]["reachable"])
         self.assertTrue(payload["qdrant"]["reachable_on_startup"])
+        self.assertEqual(payload["sqlite"]["path"], ":memory:")
+        self.assertTrue(payload["sqlite"]["schema_initialized"])
 
     # test_health_reports_qdrant_unreachable: expects `degraded` when store is unhealthy.
     def test_health_reports_qdrant_unreachable(self) -> None:
@@ -86,3 +89,6 @@ class TestHealthEndpoint(unittest.TestCase):
         self.assertFalse(payload["qdrant"]["reachable"])
         self.assertFalse(payload["qdrant"]["reachable_on_startup"])
         self.assertEqual(payload["qdrant"]["startup_error"], "qdrant unreachable")
+        self.assertEqual(payload["sqlite"]["path"], ":memory:")
+        self.assertTrue(payload["sqlite"]["schema_initialized"])
+

@@ -38,6 +38,7 @@ class TestSettings(unittest.TestCase):
                 [
                     "QDRANT_URL=http://127.0.0.1:6333",
                     "QDRANT_COLLECTION=documents",
+                    "SQLITE_PATH=./data/custom-metadata.db",
                     "LITELLM_MODEL=openai/gpt-4o-mini",
                     "EMBEDDING_PROVIDER=local",
                     "EMBEDDING_MODEL=text-embedding-3-small",
@@ -50,6 +51,7 @@ class TestSettings(unittest.TestCase):
 
         self.assertEqual(settings.qdrant_url, "http://127.0.0.1:6333")
         self.assertEqual(settings.qdrant_collection, "documents")
+        self.assertEqual(settings.sqlite_path, "./data/custom-metadata.db")
         self.assertEqual(settings.embedding_provider, "local")
 
     # test_missing_critical_fields_fail_clearly: missing required keys should trigger validation errors.
@@ -111,3 +113,24 @@ class TestSettings(unittest.TestCase):
             "OPENAI_API_KEY is required when EMBEDDING_PROVIDER is set to 'openai'.",
             str(ctx.exception),
         )
+
+    # test_sqlite_path_cannot_be_blank: sqlite path must reject empty values.
+    def test_sqlite_path_cannot_be_blank(self) -> None:
+        env_file = _write_env_file(
+            "\n".join(
+                [
+                    "QDRANT_URL=http://127.0.0.1:6333",
+                    "QDRANT_COLLECTION=documents",
+                    "SQLITE_PATH=   ",
+                    "LITELLM_MODEL=openai/gpt-4o-mini",
+                    "EMBEDDING_PROVIDER=local",
+                    "EMBEDDING_MODEL=text-embedding-3-small",
+                ]
+            )
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(ValidationError) as ctx:
+                Settings(_env_file=env_file)
+
+        self.assertIn("sqlite_path", str(ctx.exception))
