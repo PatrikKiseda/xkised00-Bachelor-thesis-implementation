@@ -17,7 +17,11 @@ from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from app.core.settings import Settings
+from app.core.settings import (
+    DEFAULT_CHUNK_OVERLAP_CHARS,
+    DEFAULT_CHUNK_SIZE_CHARS,
+    Settings,
+)
 
 
 # _write_env_file: helper that writes temporary .env contents for settings tests.
@@ -55,6 +59,8 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(settings.sqlite_path, "./data/custom-metadata.db")
         self.assertEqual(settings.storage_dir, "./data/custom-uploads")
         self.assertEqual(settings.embedding_provider, "local")
+        self.assertEqual(settings.chunk_size_chars, DEFAULT_CHUNK_SIZE_CHARS)
+        self.assertEqual(settings.chunk_overlap_chars, DEFAULT_CHUNK_OVERLAP_CHARS)
 
     # test_missing_critical_fields_fail_clearly: missing required keys should trigger validation errors.
     def test_missing_critical_fields_fail_clearly(self) -> None:
@@ -158,3 +164,51 @@ class TestSettings(unittest.TestCase):
                 Settings(_env_file=env_file)
 
         self.assertIn("storage_dir", str(ctx.exception))
+
+    # test_chunk_overlap_must_be_smaller_than_chunk_size: invalid overlap-size relation should fail.
+    def test_chunk_overlap_must_be_smaller_than_chunk_size(self) -> None:
+        env_file = _write_env_file(
+            "\n".join(
+                [
+                    "QDRANT_URL=http://127.0.0.1:6333",
+                    "QDRANT_COLLECTION=documents",
+                    "SQLITE_PATH=./data/app.db",
+                    "STORAGE_DIR=./data/uploads",
+                    f"CHUNK_SIZE_CHARS={DEFAULT_CHUNK_SIZE_CHARS}",
+                    f"CHUNK_OVERLAP_CHARS={DEFAULT_CHUNK_SIZE_CHARS}",
+                    "LITELLM_MODEL=openai/gpt-4o-mini",
+                    "EMBEDDING_PROVIDER=local",
+                    "EMBEDDING_MODEL=text-embedding-3-small",
+                ]
+            )
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(ValidationError) as ctx:
+                Settings(_env_file=env_file)
+
+        self.assertIn("CHUNK_OVERLAP_CHARS must be smaller than CHUNK_SIZE_CHARS.", str(ctx.exception))
+
+    # test_chunk_overlap_cannot_be_negative: chunk overlap must reject negative values.
+    def test_chunk_overlap_cannot_be_negative(self) -> None:
+        env_file = _write_env_file(
+            "\n".join(
+                [
+                    "QDRANT_URL=http://127.0.0.1:6333",
+                    "QDRANT_COLLECTION=documents",
+                    "SQLITE_PATH=./data/app.db",
+                    "STORAGE_DIR=./data/uploads",
+                    f"CHUNK_SIZE_CHARS={DEFAULT_CHUNK_SIZE_CHARS}",
+                    "CHUNK_OVERLAP_CHARS=-1",
+                    "LITELLM_MODEL=openai/gpt-4o-mini",
+                    "EMBEDDING_PROVIDER=local",
+                    "EMBEDDING_MODEL=text-embedding-3-small",
+                ]
+            )
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(ValidationError) as ctx:
+                Settings(_env_file=env_file)
+
+        self.assertIn("CHUNK_OVERLAP_CHARS must be greater than or equal to 0.", str(ctx.exception))

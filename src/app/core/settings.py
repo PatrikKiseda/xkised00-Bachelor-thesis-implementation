@@ -9,6 +9,9 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator, model_validator
 
+DEFAULT_CHUNK_SIZE_CHARS = 1000
+DEFAULT_CHUNK_OVERLAP_CHARS = 150
+
 # Settings: typed config model loaded from .env.
 class Settings(BaseSettings):
     # App runtime config (defaults considered safe for local development).
@@ -25,6 +28,8 @@ class Settings(BaseSettings):
     qdrant_collection: str = Field(..., description="Qdrant collection used by the app")
     sqlite_path: str = "./data/app.db"
     storage_dir: str = "./data/uploads"
+    chunk_size_chars: int = DEFAULT_CHUNK_SIZE_CHARS
+    chunk_overlap_chars: int = DEFAULT_CHUNK_OVERLAP_CHARS
 
     # Model config (critical fields are required and validated).
     litellm_model: str = Field(..., description="Generation model, e.g. openai/gpt-4o-mini")
@@ -58,6 +63,22 @@ class Settings(BaseSettings):
             raise ValueError("QDRANT_TIMEOUT_SECONDS must be greater than 0.")
         return value
 
+    # chunk size validator: ensures chunk size is a positive integer.
+    @field_validator("chunk_size_chars")
+    @classmethod
+    def validate_chunk_size_chars(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("CHUNK_SIZE_CHARS must be greater than 0.")
+        return value
+
+    # chunk overlap validator: ensures chunk overlap is non-negative and reasonable compared to size of chunk.
+    @field_validator("chunk_overlap_chars")
+    @classmethod
+    def validate_chunk_overlap_chars_non_negative(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("CHUNK_OVERLAP_CHARS must be greater than or equal to 0.")
+        return value
+    
     # critical-string validator: rejects blank critical values for required config keys.
     @field_validator(
         "qdrant_collection",
@@ -67,6 +88,7 @@ class Settings(BaseSettings):
         "sqlite_path",
         "storage_dir",
     )
+    # validate_non_empty_critical_strings: makes sure string config values are not empty or just whitespace.
     @classmethod
     def validate_non_empty_critical_strings(cls, value: str) -> str:
         normalized = value.strip()
@@ -82,6 +104,9 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "OPENAI_API_KEY is required when EMBEDDING_PROVIDER is set to 'openai'."
                 )
+        # chunk size vs. overlap validator: makes sure there's logical consistency check between chunking parameters.
+        if self.chunk_overlap_chars >= self.chunk_size_chars:
+            raise ValueError("CHUNK_OVERLAP_CHARS must be smaller than CHUNK_SIZE_CHARS.")
         return self
 
 # get_settings decorator: cache one Settings instance for repeated app access.  https://docs.python.org/3/library/functools.html#functools.lru_cache for details.
