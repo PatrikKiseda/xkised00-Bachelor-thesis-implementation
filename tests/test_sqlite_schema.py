@@ -40,6 +40,10 @@ class TestSqliteSchema(unittest.TestCase):
                 fts_definition = connection.execute(
                     "SELECT sql FROM sqlite_master WHERE name='chunks_fts'"
                 ).fetchone()
+                document_columns = {
+                    row[1]
+                    for row in connection.execute("PRAGMA table_info(documents)").fetchall()
+                }
 
             self.assertIn("documents", tables)
             self.assertIn("chunks", tables)

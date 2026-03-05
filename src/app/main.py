@@ -50,7 +50,7 @@ def create_app(
 
 
     # health endpoint decorator: exposing runtime health snapshot for app + Qdrant.
-    @app.get("/health")
+    @app.get("/api/health")
     # health: returns current Qdrant reachability and startup-time reachability details.
     def health() -> dict[str, object]:
         current_status = app.state.qdrant_store.check_connection()

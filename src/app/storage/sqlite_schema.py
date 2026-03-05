@@ -31,6 +31,9 @@ def initialize_sqlite_schema(db_path: str) -> Path:
             CREATE TABLE IF NOT EXISTS documents (
                 id TEXT PRIMARY KEY,
                 source_path TEXT NOT NULL,
+                source_type TEXT,
+                filename TEXT,
+                size_bytes INTEGER,
                 title TEXT,
                 checksum TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
@@ -70,6 +73,14 @@ def initialize_sqlite_schema(db_path: str) -> Path:
             );
             """
         )
+        existing_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(documents)").fetchall()
+        }
+        for column_name, column_type in DOCUMENTS_TABLE_ADDITIONAL_COLUMNS:
+            if column_name not in existing_columns:
+                connection.execute(
+                    f"ALTER TABLE documents ADD COLUMN {column_name} {column_type};"
+                )
         connection.commit()
 
     return resolved_db_path
