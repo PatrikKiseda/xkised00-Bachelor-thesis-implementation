@@ -8,9 +8,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from typing import Callable
-
 from fastapi import FastAPI
-
 from app.core.settings import Settings, get_settings
 from app.storage.qdrant_store import QdrantStore
 from app.storage.sqlite_schema import initialize_sqlite_schema
