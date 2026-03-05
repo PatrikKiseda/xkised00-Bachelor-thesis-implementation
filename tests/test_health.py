@@ -63,7 +63,7 @@ class TestHealthEndpoint(unittest.TestCase):
         )
 
         with TestClient(app) as client:
-            response = client.get("/health")
+            response = client.get("/api/health")
 
         payload = response.json()
         self.assertEqual(response.status_code, 200)
@@ -81,7 +81,7 @@ class TestHealthEndpoint(unittest.TestCase):
         )
 
         with TestClient(app) as client:
-            response = client.get("/health")
+            response = client.get("/api/health")
 
         payload = response.json()
         self.assertEqual(response.status_code, 200)
