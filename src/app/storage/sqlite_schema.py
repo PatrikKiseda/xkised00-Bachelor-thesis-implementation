@@ -13,6 +13,13 @@ from pathlib import Path
 # this is useful for adding information linking of the retrieved document/chunk to the 
 # location of the original document, and for enabling local lexical search capabilities in the future.
 
+# DOCUMENTS_TABLE_ADDITIONAL_COLUMNS: extra metadata fields for documents.
+DOCUMENTS_TABLE_ADDITIONAL_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("source_type", "TEXT"),
+    ("filename", "TEXT"),
+    ("size_bytes", "INTEGER"),
+)
+
 def initialize_sqlite_schema(db_path: str) -> Path:
     resolved_db_path = Path(db_path).expanduser()
     resolved_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -24,6 +31,9 @@ def initialize_sqlite_schema(db_path: str) -> Path:
             CREATE TABLE IF NOT EXISTS documents (
                 id TEXT PRIMARY KEY,
                 source_path TEXT NOT NULL,
+                source_type TEXT,
+                filename TEXT,
+                size_bytes INTEGER,
                 title TEXT,
                 checksum TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
@@ -63,6 +73,14 @@ def initialize_sqlite_schema(db_path: str) -> Path:
             );
             """
         )
+        existing_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(documents)").fetchall()
+        }
+        for column_name, column_type in DOCUMENTS_TABLE_ADDITIONAL_COLUMNS:
+            if column_name not in existing_columns:
+                connection.execute(
+                    f"ALTER TABLE documents ADD COLUMN {column_name} {column_type};"
+                )
         connection.commit()
 
     return resolved_db_path

@@ -7,10 +7,11 @@ Description: App startup and health endpoint with Qdrant connectivity reporting.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Callable
-
 from fastapi import FastAPI
 
+from app.api.documents import router as documents_router
 from app.core.settings import Settings, get_settings
 from app.storage.qdrant_store import QdrantStore
 from app.storage.sqlite_schema import initialize_sqlite_schema
@@ -31,21 +32,25 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         sqlite_db_path = initialize_sqlite_schema(resolved_settings.sqlite_path)
+        storage_dir = Path(resolved_settings.storage_dir).expanduser()
+        storage_dir.mkdir(parents=True, exist_ok=True)
         qdrant_store = resolved_store_factory(resolved_settings)
         startup_status = qdrant_store.check_connection()
 
         app.state.settings = resolved_settings
         app.state.sqlite_db_path = str(sqlite_db_path)
+        app.state.storage_dir = str(storage_dir)
         app.state.qdrant_store = qdrant_store
         app.state.qdrant_reachable_on_startup = startup_status.reachable
         app.state.qdrant_startup_error = startup_status.error
         yield
 
     app = FastAPI(title=resolved_settings.app_name, lifespan=lifespan)
+    app.include_router(documents_router)
 
 
     # health endpoint decorator: exposing runtime health snapshot for app + Qdrant.
-    @app.get("/health")
+    @app.get("/api/health")
     # health: returns current Qdrant reachability and startup-time reachability details.
     def health() -> dict[str, object]:
         current_status = app.state.qdrant_store.check_connection()

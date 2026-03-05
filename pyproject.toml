@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.133.1",
     "litellm>=1.81.15",
     "pydantic-settings>=2.13.1",
+    "pypdf>=6.0.0",
     "python-multipart>=0.0.22",
     "qdrant-client>=1.17.0",
     "uvicorn>=0.41.0",
@@ -15,4 +16,3 @@ dependencies = [
 
 [tool.uv]
 package = false
-

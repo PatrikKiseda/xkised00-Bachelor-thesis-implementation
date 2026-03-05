@@ -39,6 +39,7 @@ class TestSettings(unittest.TestCase):
                     "QDRANT_URL=http://127.0.0.1:6333",
                     "QDRANT_COLLECTION=documents",
                     "SQLITE_PATH=./data/custom-metadata.db",
+                    "STORAGE_DIR=./data/custom-uploads",
                     "LITELLM_MODEL=openai/gpt-4o-mini",
                     "EMBEDDING_PROVIDER=local",
                     "EMBEDDING_MODEL=text-embedding-3-small",
@@ -52,6 +53,7 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(settings.qdrant_url, "http://127.0.0.1:6333")
         self.assertEqual(settings.qdrant_collection, "documents")
         self.assertEqual(settings.sqlite_path, "./data/custom-metadata.db")
+        self.assertEqual(settings.storage_dir, "./data/custom-uploads")
         self.assertEqual(settings.embedding_provider, "local")
 
     # test_missing_critical_fields_fail_clearly: missing required keys should trigger validation errors.
@@ -134,3 +136,25 @@ class TestSettings(unittest.TestCase):
                 Settings(_env_file=env_file)
 
         self.assertIn("sqlite_path", str(ctx.exception))
+
+    # test_storage_dir_cannot_be_blank: storage dir must reject empty values.
+    def test_storage_dir_cannot_be_blank(self) -> None:
+        env_file = _write_env_file(
+            "\n".join(
+                [
+                    "QDRANT_URL=http://127.0.0.1:6333",
+                    "QDRANT_COLLECTION=documents",
+                    "SQLITE_PATH=./data/app.db",
+                    "STORAGE_DIR=    ",
+                    "LITELLM_MODEL=openai/gpt-4o-mini",
+                    "EMBEDDING_PROVIDER=local",
+                    "EMBEDDING_MODEL=text-embedding-3-small",
+                ]
+            )
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(ValidationError) as ctx:
+                Settings(_env_file=env_file)
+
+        self.assertIn("storage_dir", str(ctx.exception))

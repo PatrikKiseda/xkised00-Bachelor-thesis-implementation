@@ -81,13 +81,57 @@ The app initializes the local SQLite metadata schema during startup (`create_app
 
 - schema initializer: `src/app/storage/sqlite_schema.py`
 - configurable DB path: `SQLITE_PATH` (default: `./data/app.db`)
+- configurable upload storage dir: `STORAGE_DIR` (default: `./data/uploads`)
 - tables:
   - `documents`
   - `chunks`
   - `jobs`
   - `chunks_fts` (FTS5 virtual table for lexical search placeholders)
+- documents metadata fields now include:
+  - `source_type` (`txt`/`md`/`pdf`)
+  - `filename`
+  - `size_bytes`
 
 This creates the local metadata/job-tracking foundation for upcoming ingestion and reindex flows.
+
+## API endpoints
+
+- `GET /api/health`
+  - runtime status snapshot for app + Qdrant + SQLite initialization state
+
+- `POST /api/documents/upload`
+  - accepts multipart file upload (`file`)
+  - saves file to `STORAGE_DIR`
+  - extracts text and stores document metadata row in SQLite
+  - supported extensions: `.txt`, `.md`, `.pdf`
+
+- `GET /api/documents`
+  - returns list of stored documents from SQLite metadata
+
+### Upload response payload (`201`)
+
+- `id`
+- `filename`
+- `source_type`
+- `status`
+- `storage_path`
+- `created_at`
+
+### Upload errors
+
+- `400` - uploaded file is empty
+- `415` - unsupported file extension
+- `422` - extraction failure for supported file type (for example malformed PDF)
+- `500` - unexpected storage/metadata persistence failure
+
+## Extraction behavior
+
+- `.txt` and `.md` are decoded as UTF-8 text
+- `.pdf` is extracted using `pypdf`
+- extracted text is normalized by:
+  - line ending normalization (`\r\n` / `\r` -> `\n`)
+  - trimming trailing whitespace on each line
+  - trimming outer leading/trailing whitespace
 
 ### Local usage
 
@@ -99,3 +143,19 @@ This creates the local metadata/job-tracking foundation for upcoming ingestion a
    - `make qdrant-logs`
 4. Stop Qdrant:
    - `make qdrant-down`
+5. Run app:
+   - `make app-run`
+
+### Quick API examples
+
+```bash
+# health
+curl http://127.0.0.1:8000/api/health
+
+# upload txt/md/pdf
+curl -X POST http://127.0.0.1:8000/api/documents/upload \
+  -F "file=@./example.txt"
+
+# list uploaded documents
+curl http://127.0.0.1:8000/api/documents
+```
