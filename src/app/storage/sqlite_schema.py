@@ -13,6 +13,13 @@ from pathlib import Path
 # this is useful for adding information linking of the retrieved document/chunk to the 
 # location of the original document, and for enabling local lexical search capabilities in the future.
 
+# DOCUMENTS_TABLE_ADDITIONAL_COLUMNS: extra metadata fields for documents.
+DOCUMENTS_TABLE_ADDITIONAL_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("source_type", "TEXT"),
+    ("filename", "TEXT"),
+    ("size_bytes", "INTEGER"),
+)
+
 def initialize_sqlite_schema(db_path: str) -> Path:
     resolved_db_path = Path(db_path).expanduser()
     resolved_db_path.parent.mkdir(parents=True, exist_ok=True)
