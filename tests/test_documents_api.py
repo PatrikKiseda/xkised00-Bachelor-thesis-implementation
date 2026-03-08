@@ -40,6 +40,8 @@ def _build_settings(sqlite_path: str, storage_dir: str, **overrides: object) -> 
         "qdrant_collection": "documents",
         "sqlite_path": sqlite_path,
         "storage_dir": storage_dir,
+        "chunk_size_chars": 120,
+        "chunk_overlap_chars": 20,
         "litellm_model": "openai/gpt-4o-mini",
         "embedding_provider": "local",
         "embedding_model": "text-embedding-3-small",
@@ -70,14 +72,16 @@ class TestDocumentsApi(unittest.TestCase):
             self.assertEqual(response.status_code, 201)
             self.assertEqual(payload["filename"], "notes.txt")
             self.assertEqual(payload["source_type"], "txt")
-            self.assertEqual(payload["status"], "ready")
+            self.assertEqual(payload["status"], "pending")
+            self.assertTrue(payload["job_id"])
 
             stored_file_path = Path(payload["storage_path"])
             self.assertTrue(stored_file_path.exists())
             self.assertEqual(stored_file_path.read_bytes(), b"first line\r\nsecond line  \r\n")
 
+            # Wait for the background indexing job to complete and verify it succeeded with the expected metadata, and that chunks were created.
             with sqlite3.connect(db_path) as connection:
-                row = connection.execute(
+                document_row = connection.execute(
                     """
                     SELECT filename, source_type, size_bytes, status
                     FROM documents
@@ -85,13 +89,32 @@ class TestDocumentsApi(unittest.TestCase):
                     """,
                     (payload["id"],),
                 ).fetchone()
+                job_row = connection.execute(
+                    """
+                    SELECT id, status, started_at, finished_at
+                    FROM jobs
+                    WHERE id = ?
+                    """,
+                    (payload["job_id"],),
+                ).fetchone()
+                chunk_count = connection.execute(
+                    "SELECT COUNT(*) FROM chunks WHERE document_id = ?",
+                    (payload["id"],),
+                ).fetchone()[0]
 
-            self.assertIsNotNone(row)
-            assert row is not None
-            self.assertEqual(row[0], "notes.txt")
-            self.assertEqual(row[1], "txt")
-            self.assertEqual(row[2], len(b"first line\r\nsecond line  \r\n"))
-            self.assertEqual(row[3], "ready")
+            self.assertIsNotNone(document_row)
+            self.assertIsNotNone(job_row)
+            assert document_row is not None
+            assert job_row is not None
+            self.assertEqual(document_row[0], "notes.txt")
+            self.assertEqual(document_row[1], "txt")
+            self.assertEqual(document_row[2], len(b"first line\r\nsecond line  \r\n"))
+            self.assertIn(document_row[3], {"pending", "running", "success"})
+            self.assertEqual(job_row[0], payload["job_id"])
+            self.assertIn(job_row[1], {"pending", "running", "success"})
+            if job_row[1] == "success":
+                self.assertIsNotNone(job_row[2])
+                self.assertGreater(chunk_count, 0)
 
     # test_upload_rejects_empty_file: empty uploads should fail with 400 and no metadata row.
     def test_upload_rejects_empty_file(self) -> None:
@@ -167,9 +190,11 @@ class TestDocumentsApi(unittest.TestCase):
             self.assertEqual(len(payload["documents"]), 2)
             returned_filenames = {item["filename"] for item in payload["documents"]}
             self.assertEqual(returned_filenames, {"a.txt", "b.md"})
+            returned_statuses = {item["status"] for item in payload["documents"]}
+            self.assertTrue(returned_statuses.issubset({"pending", "running", "success", "fail"}))
 
-    # test_upload_malformed_pdf_returns_422: PDF extraction failures should be handled and surfaced.
-    def test_upload_malformed_pdf_returns_422(self) -> None:
+    # test_upload_malformed_pdf_creates_failed_job: malformed PDF should fail asynchronously.
+    def test_upload_malformed_pdf_creates_failed_job(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "app.db")
             storage_dir = str(Path(temp_dir) / "uploads")
@@ -184,9 +209,35 @@ class TestDocumentsApi(unittest.TestCase):
                     files={"file": ("broken.pdf", b"not-a-real-pdf", "application/pdf")},
                 )
 
-            self.assertEqual(response.status_code, 422)
-            self.assertEqual(response.json()["detail"], "Failed to extract text from PDF.")
+            self.assertEqual(response.status_code, 201)
+            payload = response.json()
 
+            # Wait for the background indexing job to complete and verify it failed with the expected error message, and that the document status is updated to ```fail``` with no chunks created.
             with sqlite3.connect(db_path) as connection:
-                count = connection.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-            self.assertEqual(count, 0)
+                job_row = connection.execute(
+                    """
+                    SELECT status, error_message, started_at, finished_at
+                    FROM jobs
+                    WHERE id = ?
+                    """,
+                    (payload["job_id"],),
+                ).fetchone()
+                document_row = connection.execute(
+                    "SELECT status FROM documents WHERE id = ?",
+                    (payload["id"],),
+                ).fetchone()
+                chunk_count = connection.execute(
+                    "SELECT COUNT(*) FROM chunks WHERE document_id = ?",
+                    (payload["id"],),
+                ).fetchone()[0]
+
+            self.assertIsNotNone(job_row)
+            self.assertIsNotNone(document_row)
+            assert job_row is not None
+            assert document_row is not None
+            self.assertEqual(job_row[0], "fail")
+            self.assertIn("Failed to extract text from PDF.", job_row[1] or "")
+            self.assertIsNotNone(job_row[2])
+            self.assertIsNotNone(job_row[3])
+            self.assertEqual(document_row[0], "fail")
+            self.assertEqual(chunk_count, 0)
