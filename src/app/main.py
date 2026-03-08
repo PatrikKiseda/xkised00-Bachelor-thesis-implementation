@@ -12,6 +12,7 @@ from typing import Callable
 from fastapi import FastAPI
 
 from app.api.documents import router as documents_router
+from app.api.jobs import router as jobs_router
 from app.core.settings import Settings, get_settings
 from app.storage.qdrant_store import QdrantStore
 from app.storage.sqlite_schema import initialize_sqlite_schema
@@ -47,6 +48,7 @@ def create_app(
 
     app = FastAPI(title=resolved_settings.app_name, lifespan=lifespan)
     app.include_router(documents_router)
+    app.include_router(jobs_router)
 
 
     # health endpoint decorator: exposing runtime health snapshot for app + Qdrant.

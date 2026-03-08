@@ -102,15 +102,23 @@ This creates the local metadata/job-tracking foundation for upcoming ingestion a
 - `POST /api/documents/upload`
   - accepts multipart file upload (`file`)
   - saves file to `STORAGE_DIR`
-  - extracts text and stores document metadata row in SQLite
+  - stores document metadata row in SQLite with status `pending`
+  - creates indexing job row in SQLite (`jobs` table)
+  - schedules background indexing pipeline (`extract -> chunk -> chunk persistence`)
   - supported extensions: `.txt`, `.md`, `.pdf`
 
 - `GET /api/documents`
   - returns list of stored documents from SQLite metadata
 
+- `GET /api/jobs`
+  - returns persisted indexing job records
+  - supports filters: `document_id` and `limit`
+  - used to observe pending/running/success/fail job transitions and persisted errors
+
 ### Upload response payload (`201`)
 
 - `id`
+- `job_id`
 - `filename`
 - `source_type`
 - `status`
@@ -124,6 +132,8 @@ This creates the local metadata/job-tracking foundation for upcoming ingestion a
 - `422` - extraction failure for supported file type (for example malformed PDF)
 - `500` - unexpected storage/metadata persistence failure
 
+Extraction failures for supported file types (for example malformed PDF) are now persisted as failed indexing jobs (`status=fail`, `error_message`) and can be inspected via `GET /api/jobs`.
+
 ## Extraction behavior
 
 - `.txt` and `.md` are decoded as UTF-8 text
@@ -132,6 +142,19 @@ This creates the local metadata/job-tracking foundation for upcoming ingestion a
   - line ending normalization (`\r\n` / `\r` -> `\n`)
   - trimming trailing whitespace on each line
   - trimming outer leading/trailing whitespace
+
+## Indexing and chunking behavior
+
+- indexing pipeline runs in background after upload:
+  - `documents.status`: `pending -> running -> success/fail`
+  - `jobs.status`: `pending -> running -> success/fail`
+- chunking is recursive and character-based
+  - default `CHUNK_SIZE_CHARS=1000`
+  - default `CHUNK_OVERLAP_CHARS=150`
+  - deterministic chunk IDs: `<document_id>:<zero-padded chunk_index>` (example `doc-1:000005`)
+- chunk records are persisted into:
+  - `chunks` table (metadata/content)
+  - `chunks_fts` table (FTS5 lexical index content mirror)
 
 ### Local usage
 
@@ -159,3 +182,20 @@ curl -X POST http://127.0.0.1:8000/api/documents/upload \
 # list uploaded documents
 curl http://127.0.0.1:8000/api/documents
 ```
+
+# list indexing jobs
+curl "http://127.0.0.1:8000/api/jobs?limit=20"
+```
+
+## Future opportunities / roadmap
+
+- chunking strategy experiments:
+  - compare character/word/token-based chunking
+  - chunk size and overlap values, measure retrieval/answer quality and latency
+- indexing pipeline:
+  - in-process background tasks -> dedicated worker/queue model
+  - better invalid input handling
+  - add richer job payload and progress metadata for observability
+- retrieval and ranking:
+  - dense-only vs hybrid retrieval benchmarking
+  - large enough dataset probe for stronger statistics

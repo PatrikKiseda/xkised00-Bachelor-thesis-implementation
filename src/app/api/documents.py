@@ -10,16 +10,22 @@ import hashlib
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Request, UploadFile
 
-from app.ingestion.extractors import SOURCE_TYPE_BY_EXTENSION, ExtractionError, extract_text
-from app.storage.document_repository import insert_document, list_documents
+from app.ingestion.extractors import SOURCE_TYPE_BY_EXTENSION
+from app.ingestion.indexing_pipeline import run_indexing_pipeline
+from app.storage.document_repository import insert_document, list_documents, update_document_status
+from app.storage.indexing_repository import create_job
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
-# upload_document: handles file uploads, text extraction, and metadata storage in SQLite.
+# upload_document: handles file uploads, metadata persistence, and background indexing job creation.
 @router.post("/upload", status_code=201)
-async def upload_document(request: Request, file: UploadFile = File(...)) -> dict[str, object]:
+async def upload_document(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+) -> dict[str, object]:
     # validation of file presence.
     if not file.filename:
         raise HTTPException(status_code=415, detail="Unsupported file type.")
@@ -34,34 +40,60 @@ async def upload_document(request: Request, file: UploadFile = File(...)) -> dic
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    file_id = str(uuid4())
-    stored_path = Path(request.app.state.storage_dir) / f"{file_id}{extension}"
+    document_id = str(uuid4())
+    job_id = str(uuid4())
+    source_type = SOURCE_TYPE_BY_EXTENSION[extension]
+
+    stored_path = Path(request.app.state.storage_dir) / f"{document_id}{extension}"
     stored_path.parent.mkdir(parents=True, exist_ok=True)
     stored_path.write_bytes(content)
 
-    # attempt extraction and metadata recording, with cleanup on failure.
+    # attempt metadata recording + job creation, with cleanup on failure.
     try:
-        extracted = extract_text(file.filename, content)
         record = insert_document(
             request.app.state.sqlite_db_path,
-            document_id=file_id,
+            document_id=document_id,
             filename=file.filename,
-            source_type=extracted.source_type,
+            source_type=source_type,
             source_path=str(stored_path),
             size_bytes=len(content),
             checksum=hashlib.sha256(content).hexdigest(),
-            status="ready",
+            status="pending",
         )
-    except ExtractionError as exc:
-        stored_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        create_job(
+            request.app.state.sqlite_db_path,
+            job_id=job_id,
+            job_type="indexing",
+            document_id=document_id,
+            status="pending",
+        )
+    # In a case of any exception during metadata saving or job creation, the uploaded file is deleted and the document status is updated to ```fail``` to indicate the unsuccessful ingestion.
     except Exception as exc:
         stored_path.unlink(missing_ok=True)
+        update_document_status(
+            request.app.state.sqlite_db_path,
+            document_id=document_id,
+            status="fail",
+        )
         raise HTTPException(status_code=500, detail="Failed to store uploaded document.") from exc
+
+    # Adds the indexing pipeline to a list of background tasks to be executed asynchronously. 
+    # Allows the API to return a response immediatelly while the indexing process runs in the background.
+    background_tasks.add_task(
+        run_indexing_pipeline,
+        db_path=request.app.state.sqlite_db_path,
+        document_id=document_id,
+        filename=file.filename,
+        source_path=str(stored_path),
+        job_id=job_id,
+        chunk_size_chars=request.app.state.settings.chunk_size_chars,
+        chunk_overlap_chars=request.app.state.settings.chunk_overlap_chars,
+    )
 
     # return of the created document metadata.
     return {
         "id": record.id,
+        "job_id": job_id,
         "filename": record.filename,
         "source_type": record.source_type,
         "status": record.status,

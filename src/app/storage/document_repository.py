@@ -112,3 +112,21 @@ def list_documents(db_path: str) -> list[DocumentRecord]:
         )
         for row in rows
     ]
+
+# update_document_status: updates the status of a document record in the ```documents``` table, id by document_id.
+def update_document_status(
+    db_path: str,
+    *,
+    document_id: str,
+    status: str,
+) -> None:
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE documents
+            SET status = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (status, document_id),
+        )
+        connection.commit()
