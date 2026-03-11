@@ -53,8 +53,12 @@ The `src/app` directory is split into modules with different responsibilities th
   - examples: configuration loading, logging, helpers
 
 - `ingestion/`
-  - document processing pipeline -> extraction/chunking
+  - document processing pipeline -> extraction/chunking/embedding orchestration
   - this is the “input side” of the RAG system
+
+- `embeddings/`
+  - embedding adapter abstraction and provider registry
+  - OpenAI API-first client + deterministic runtime mode for tests/local CI
 
 - `retrieval/`
   - dense retrieval, hybrid retrieval, ranking/fusion logic (e.g., RRF/MMR)
@@ -104,7 +108,7 @@ This creates the local metadata/job-tracking foundation for upcoming ingestion a
   - saves file to `STORAGE_DIR`
   - stores document metadata row in SQLite with status `pending`
   - creates indexing job row in SQLite (`jobs` table)
-  - schedules background indexing pipeline (`extract -> chunk -> chunk persistence`)
+  - schedules background indexing pipeline (`extract -> chunk -> embed -> chunk persistence`)
   - supported extensions: `.txt`, `.md`, `.pdf`
 
 - `GET /api/documents`
@@ -155,6 +159,23 @@ Extraction failures for supported file types (for example malformed PDF) are now
 - chunk records are persisted into:
   - `chunks` table (metadata/content)
   - `chunks_fts` table (FTS5 lexical index content mirror)
+- embedding generation is executed per chunk via adapter interface:
+  - provider/model come from `EMBEDDING_PROVIDER` and `EMBEDDING_MODEL`
+  - if `EMBEDDING_API_ENABLED=true`, provider registry uses API client (OpenAI in this prototype)
+  - if `EMBEDDING_API_ENABLED=false`, deterministic non-API client is used for tests/dev
+  - vectors are currently ephemeral (not persisted yet), but chunk-level `embedding_model` is set for successful embeddings
+- embedding failure policy:
+  - partial embedding failures keep job `success` and write warning stats into `jobs.payload_json`
+  - if all chunk embeddings fail, job is marked `fail` with persisted payload/error summary
+
+## Enable embedding service
+
+To run API embeddings currently:
+
+- `EMBEDDING_PROVIDER=openai`
+- `EMBEDDING_MODEL=text-embedding-3-small` (or another supported OpenAI embedding model)
+- `OPENAI_API_KEY=<real-provider-key>`
+- `EMBEDDING_API_ENABLED=true`
 
 ### Local usage
 
@@ -181,7 +202,6 @@ curl -X POST http://127.0.0.1:8000/api/documents/upload \
 
 # list uploaded documents
 curl http://127.0.0.1:8000/api/documents
-```
 
 # list indexing jobs
 curl "http://127.0.0.1:8000/api/jobs?limit=20"
@@ -199,3 +219,6 @@ curl "http://127.0.0.1:8000/api/jobs?limit=20"
 - retrieval and ranking:
   - dense-only vs hybrid retrieval benchmarking
   - large enough dataset probe for stronger statistics
+- embedding adapter and provider behavior:
+  - additional tests for different providers 
+  - compare deterministic vectors vs API vectors 
