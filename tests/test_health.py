@@ -20,6 +20,7 @@ os.environ.setdefault("QDRANT_COLLECTION", "documents")
 os.environ.setdefault("LITELLM_MODEL", "openai/gpt-4o-mini")
 os.environ.setdefault("EMBEDDING_PROVIDER", "local")
 os.environ.setdefault("EMBEDDING_MODEL", "text-embedding-3-small")
+os.environ.setdefault("EMBEDDING_API_ENABLED", "false")
 
 from app.core.settings import Settings
 from app.main import create_app
@@ -35,6 +36,7 @@ def _build_settings(**overrides: object) -> Settings:
         "litellm_model": "openai/gpt-4o-mini",
         "embedding_provider": "local",
         "embedding_model": "text-embedding-3-small",
+        "embedding_api_enabled": False,
     }
     payload.update(overrides)
     return Settings(**payload)
@@ -91,4 +93,3 @@ class TestHealthEndpoint(unittest.TestCase):
         self.assertEqual(payload["qdrant"]["startup_error"], "qdrant unreachable")
         self.assertEqual(payload["sqlite"]["path"], ":memory:")
         self.assertTrue(payload["sqlite"]["schema_initialized"])
-

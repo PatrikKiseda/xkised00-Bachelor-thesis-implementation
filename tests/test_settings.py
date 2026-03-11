@@ -59,6 +59,7 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(settings.sqlite_path, "./data/custom-metadata.db")
         self.assertEqual(settings.storage_dir, "./data/custom-uploads")
         self.assertEqual(settings.embedding_provider, "local")
+        self.assertTrue(settings.embedding_api_enabled)
         self.assertEqual(settings.chunk_size_chars, DEFAULT_CHUNK_SIZE_CHARS)
         self.assertEqual(settings.chunk_overlap_chars, DEFAULT_CHUNK_OVERLAP_CHARS)
 
@@ -121,6 +122,26 @@ class TestSettings(unittest.TestCase):
             "OPENAI_API_KEY is required when EMBEDDING_PROVIDER is set to 'openai'.",
             str(ctx.exception),
         )
+
+    # test_openai_without_key_is_allowed_when_api_mode_disabled: runtime test mode must bypass API-key requirement.
+    def test_openai_without_key_is_allowed_when_api_mode_disabled(self) -> None:
+        env_file = _write_env_file(
+            "\n".join(
+                [
+                    "QDRANT_URL=http://127.0.0.1:6333",
+                    "QDRANT_COLLECTION=documents",
+                    "LITELLM_MODEL=openai/gpt-4o-mini",
+                    "EMBEDDING_PROVIDER=openai",
+                    "EMBEDDING_MODEL=text-embedding-3-small",
+                    "EMBEDDING_API_ENABLED=false",
+                ]
+            )
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            settings = Settings(_env_file=env_file)
+
+        self.assertFalse(settings.embedding_api_enabled)
 
     # test_sqlite_path_cannot_be_blank: sqlite path must reject empty values.
     def test_sqlite_path_cannot_be_blank(self) -> None:

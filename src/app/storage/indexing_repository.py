@@ -80,32 +80,45 @@ def mark_job_running(db_path: str, *, job_id: str) -> None:
         connection.commit()
 
 # mark_job_success: updates a job record's status to ```success``` and sets the finished_at timestamp.
-def mark_job_success(db_path: str, *, job_id: str) -> None:
+def mark_job_success(
+    db_path: str,
+    *,
+    job_id: str,
+    payload_json: str | None = None,
+) -> None:
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             """
             UPDATE jobs
             SET status = 'success',
                 finished_at = CURRENT_TIMESTAMP,
-                error_message = NULL
+                error_message = NULL,
+                payload_json = ?
             WHERE id = ?
             """,
-            (job_id,),
+            (payload_json, job_id),
         )
         connection.commit()
 
 # mark_job_fail: updates a job record's status to ```fail```, sets the finished_at timestamp, and records an error message.
-def mark_job_fail(db_path: str, *, job_id: str, error_message: str) -> None:
+def mark_job_fail(
+    db_path: str,
+    *,
+    job_id: str,
+    error_message: str,
+    payload_json: str | None = None,
+) -> None:
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             """
             UPDATE jobs
             SET status = 'fail',
                 finished_at = CURRENT_TIMESTAMP,
-                error_message = ?
+                error_message = ?,
+                payload_json = ?
             WHERE id = ?
             """,
-            (error_message, job_id),
+            (error_message, payload_json, job_id),
         )
         connection.commit()
 

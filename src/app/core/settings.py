@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     litellm_model: str = Field(..., description="Generation model, e.g. openai/gpt-4o-mini")
     embedding_provider: str = Field(..., description="Embedding provider, e.g. openai")
     embedding_model: str = Field(..., description="Embedding model id")
+    embedding_api_enabled: bool = True
     openai_api_key: str | None = None
 
     # model_config: control of how pydantic-settings reads env vars 
@@ -99,7 +100,7 @@ class Settings(BaseSettings):
     # model-level validator: enforces provider-dependent API key requirements.
     @model_validator(mode="after")
     def validate_provider_dependencies(self) -> "Settings":
-        if self.embedding_provider.lower() == "openai":
+        if self.embedding_api_enabled and self.embedding_provider.lower() == "openai":
             if not self.openai_api_key or not self.openai_api_key.strip():
                 raise ValueError(
                     "OPENAI_API_KEY is required when EMBEDDING_PROVIDER is set to 'openai'."

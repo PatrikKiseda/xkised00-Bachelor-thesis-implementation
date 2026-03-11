@@ -21,6 +21,7 @@ os.environ.setdefault("QDRANT_COLLECTION", "documents")
 os.environ.setdefault("LITELLM_MODEL", "openai/gpt-4o-mini")
 os.environ.setdefault("EMBEDDING_PROVIDER", "local")
 os.environ.setdefault("EMBEDDING_MODEL", "text-embedding-3-small")
+os.environ.setdefault("EMBEDDING_API_ENABLED", "false")
 
 from app.core.settings import Settings
 from app.main import create_app
@@ -44,6 +45,7 @@ def _build_settings(sqlite_path: str, storage_dir: str, **overrides: object) -> 
         "litellm_model": "openai/gpt-4o-mini",
         "embedding_provider": "local",
         "embedding_model": "text-embedding-3-small",
+        "embedding_api_enabled": False,
     }
     payload.update(overrides)
     return Settings(**payload)
@@ -77,6 +79,9 @@ class TestJobsApi(unittest.TestCase):
             self.assertEqual(len(matching_jobs), 1)
             self.assertEqual(matching_jobs[0]["document_id"], upload_payload["id"])
             self.assertIn(matching_jobs[0]["status"], {"running", "success", "fail", "pending"})
+            # payload_json should include embedding stats once indexing finishes.
+            if matching_jobs[0]["status"] == "success":
+                self.assertIsNotNone(matching_jobs[0]["payload_json"])
             
     # test_jobs_endpoint_supports_document_filter_and_limit: verifies that the /api/jobs endpoint correctly supports filtering by document_id and limiting the number of returned jobs. The test uploads multiple documents, retrieves jobs with a limit parameter to ensure only a certain number of jobs are returned, and retrieves jobs filtered by a specific document_id to ensure only relevant jobs are included in the response.
     def test_jobs_endpoint_supports_document_filter_and_limit(self) -> None:

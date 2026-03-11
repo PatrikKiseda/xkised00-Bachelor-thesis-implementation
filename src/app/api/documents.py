@@ -88,6 +88,7 @@ async def upload_document(
         job_id=job_id,
         chunk_size_chars=request.app.state.settings.chunk_size_chars,
         chunk_overlap_chars=request.app.state.settings.chunk_overlap_chars,
+        embedding_client=request.app.state.embedding_client,
     )
 
     # return of the created document metadata.
