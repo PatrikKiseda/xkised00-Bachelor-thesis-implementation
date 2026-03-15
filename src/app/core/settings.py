@@ -6,11 +6,14 @@ Description: Runtime settings loaded from environment variables.
 
 from __future__ import annotations
 from functools import lru_cache
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pathlib import Path
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 from pydantic import Field, field_validator, model_validator
 
 DEFAULT_CHUNK_SIZE_CHARS = 1000
 DEFAULT_CHUNK_OVERLAP_CHARS = 150
+# Default environment file path. 
+DEFAULT_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 # Settings: typed config model loaded from .env.
 class Settings(BaseSettings):
@@ -26,6 +29,7 @@ class Settings(BaseSettings):
     qdrant_api_key: str | None = None
     qdrant_timeout_seconds: float = 3.0
     qdrant_collection: str = Field(..., description="Qdrant collection used by the app")
+    qdrant_vector_size: int = Field(..., description="Dense vector size for Qdrant collection")
     sqlite_path: str = "./data/app.db"
     storage_dir: str = "./data/uploads"
     chunk_size_chars: int = DEFAULT_CHUNK_SIZE_CHARS
@@ -40,10 +44,24 @@ class Settings(BaseSettings):
 
     # model_config: control of how pydantic-settings reads env vars 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Use the repo-local .env explicitly so sibling workspaces don't interfere with each other during development.
+        # (If using multiple workspaces side by side for prototyping, this helps avoid configuration mismatches) 
+        env_file=str(DEFAULT_ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @classmethod
+    # settings_customise_sources: use this repo's .env over inherited shell env for prototype isolation.
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return init_settings, dotenv_settings, env_settings, file_secret_settings
 
     # qdrant_url validator: ensures URL is explicitly HTTP(S).
     @field_validator("qdrant_url")
@@ -62,6 +80,14 @@ class Settings(BaseSettings):
     def validate_qdrant_timeout(cls, value: float) -> float:
         if value <= 0:
             raise ValueError("QDRANT_TIMEOUT_SECONDS must be greater than 0.")
+        return value
+
+    # vector size validator: enforce deterministic, dense vector schema.
+    @field_validator("qdrant_vector_size")
+    @classmethod
+    def validate_qdrant_vector_size(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("QDRANT_VECTOR_SIZE must be greater than 0.")
         return value
 
     # chunk size validator: ensures chunk size is a positive integer.

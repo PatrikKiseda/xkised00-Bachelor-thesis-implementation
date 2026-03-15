@@ -110,6 +110,24 @@ class TestIndexingPipeline(unittest.TestCase):
         )
         return db_path
 
+    # test_create_job_returns_complete_job_record: job row mapping should include id/type/status fields.
+    def test_create_job_returns_complete_job_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(initialize_sqlite_schema(str(Path(temp_dir) / "app.db")))
+
+            job = create_job(
+                db_path,
+                job_id="job-1",
+                job_type="indexing",
+                document_id="doc-1",
+                status="pending",
+            )
+
+            self.assertEqual(job.id, "job-1")
+            self.assertEqual(job.job_type, "indexing")
+            self.assertEqual(job.status, "pending")
+            self.assertEqual(job.document_id, "doc-1")
+
     # test_success_persists_chunks_and_embedding_payload: all-success embedding keeps success status with stats payload.
     def test_success_persists_chunks_and_embedding_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
