@@ -26,6 +26,7 @@ def _build_settings(**overrides: object) -> Settings:
     payload = {
         "qdrant_url": "http://127.0.0.1:6333",
         "qdrant_collection": "documents",
+        "qdrant_vector_size": 8,
         "litellm_model": "openai/gpt-4o-mini",
         "embedding_provider": "openai",
         "embedding_model": "text-embedding-3-small",

@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 os.environ.setdefault("QDRANT_URL", "http://127.0.0.1:6333")
 os.environ.setdefault("QDRANT_COLLECTION", "documents")
+os.environ.setdefault("QDRANT_VECTOR_SIZE", "8")
 os.environ.setdefault("LITELLM_MODEL", "openai/gpt-4o-mini")
 os.environ.setdefault("EMBEDDING_PROVIDER", "local")
 os.environ.setdefault("EMBEDDING_MODEL", "text-embedding-3-small")
@@ -32,12 +33,19 @@ class _HealthyStore:
     def check_connection(self) -> QdrantConnectionStatus:
         return QdrantConnectionStatus(reachable=True)
 
+    def ensure_collection(self, *, collection_name: str, vector_size: int) -> None:
+        return None
+
+    def upsert_chunk_vectors(self, *, collection_name: str, vectors: list[object]) -> None:
+        return None
+
 # _build_settings: helper function to create Settings objects with specified sqlite_path and storage_dir, along with default values for other required settings. This simplifies test setup by allowing easy configuration of the app's settings for each test case.
 def _build_settings(sqlite_path: str, storage_dir: str, **overrides: object) -> Settings:
     payload = {
         "app_name": "test-app",
         "qdrant_url": "http://test-qdrant:6333",
         "qdrant_collection": "documents",
+        "qdrant_vector_size": 8,
         "sqlite_path": sqlite_path,
         "storage_dir": storage_dir,
         "chunk_size_chars": 120,
