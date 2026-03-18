@@ -42,6 +42,7 @@ class TestSettings(unittest.TestCase):
                 [
                     "QDRANT_URL=http://127.0.0.1:6333",
                     "QDRANT_COLLECTION=documents",
+                    "QDRANT_VECTOR_SIZE=8",
                     "SQLITE_PATH=./data/custom-metadata.db",
                     "STORAGE_DIR=./data/custom-uploads",
                     "LITELLM_MODEL=openai/gpt-4o-mini",
@@ -63,6 +64,27 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(settings.chunk_size_chars, DEFAULT_CHUNK_SIZE_CHARS)
         self.assertEqual(settings.chunk_overlap_chars, DEFAULT_CHUNK_OVERLAP_CHARS)
 
+    # test_env_file_overrides_inherited_environment: repo-local .env should win over stray shell exports.
+    def test_env_file_overrides_inherited_environment(self) -> None:
+        env_file = _write_env_file(
+            "\n".join(
+                [
+                    "QDRANT_URL=http://127.0.0.1:6333",
+                    "QDRANT_COLLECTION=documents",
+                    "QDRANT_VECTOR_SIZE=8",
+                    "LITELLM_MODEL=openai/gpt-4o-mini",
+                    "EMBEDDING_PROVIDER=openai",
+                    "EMBEDDING_MODEL=text-embedding-3-small",
+                    "OPENAI_API_KEY=real-from-env-file",
+                ]
+            )
+        )
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "placeholder-from-shell"}, clear=True):
+            settings = Settings(_env_file=env_file)
+
+        self.assertEqual(settings.openai_api_key, "real-from-env-file")
+
     # test_missing_critical_fields_fail_clearly: missing required keys should trigger validation errors.
     def test_missing_critical_fields_fail_clearly(self) -> None:
         env_file = _write_env_file("QDRANT_URL=http://127.0.0.1:6333")
@@ -73,6 +95,7 @@ class TestSettings(unittest.TestCase):
 
         error_text = str(ctx.exception)
         self.assertIn("qdrant_collection", error_text)
+        self.assertIn("qdrant_vector_size", error_text)
         self.assertIn("litellm_model", error_text)
         self.assertIn("embedding_provider", error_text)
         self.assertIn("embedding_model", error_text)
@@ -85,6 +108,7 @@ class TestSettings(unittest.TestCase):
                     "QDRANT_URL=127.0.0.1:6333",
                     "QDRANT_TIMEOUT_SECONDS=0",
                     "QDRANT_COLLECTION=documents",
+                    "QDRANT_VECTOR_SIZE=8",
                     "LITELLM_MODEL=openai/gpt-4o-mini",
                     "EMBEDDING_PROVIDER=local",
                     "EMBEDDING_MODEL=text-embedding-3-small",
@@ -107,6 +131,7 @@ class TestSettings(unittest.TestCase):
                 [
                     "QDRANT_URL=http://127.0.0.1:6333",
                     "QDRANT_COLLECTION=documents",
+                    "QDRANT_VECTOR_SIZE=8",
                     "LITELLM_MODEL=openai/gpt-4o-mini",
                     "EMBEDDING_PROVIDER=openai",
                     "EMBEDDING_MODEL=text-embedding-3-small",
@@ -130,6 +155,7 @@ class TestSettings(unittest.TestCase):
                 [
                     "QDRANT_URL=http://127.0.0.1:6333",
                     "QDRANT_COLLECTION=documents",
+                    "QDRANT_VECTOR_SIZE=8",
                     "LITELLM_MODEL=openai/gpt-4o-mini",
                     "EMBEDDING_PROVIDER=openai",
                     "EMBEDDING_MODEL=text-embedding-3-small",
@@ -150,6 +176,7 @@ class TestSettings(unittest.TestCase):
                 [
                     "QDRANT_URL=http://127.0.0.1:6333",
                     "QDRANT_COLLECTION=documents",
+                    "QDRANT_VECTOR_SIZE=8",
                     "SQLITE_PATH=   ",
                     "LITELLM_MODEL=openai/gpt-4o-mini",
                     "EMBEDDING_PROVIDER=local",
@@ -171,6 +198,7 @@ class TestSettings(unittest.TestCase):
                 [
                     "QDRANT_URL=http://127.0.0.1:6333",
                     "QDRANT_COLLECTION=documents",
+                    "QDRANT_VECTOR_SIZE=8",
                     "SQLITE_PATH=./data/app.db",
                     "STORAGE_DIR=    ",
                     "LITELLM_MODEL=openai/gpt-4o-mini",
@@ -193,6 +221,7 @@ class TestSettings(unittest.TestCase):
                 [
                     "QDRANT_URL=http://127.0.0.1:6333",
                     "QDRANT_COLLECTION=documents",
+                    "QDRANT_VECTOR_SIZE=8",
                     "SQLITE_PATH=./data/app.db",
                     "STORAGE_DIR=./data/uploads",
                     f"CHUNK_SIZE_CHARS={DEFAULT_CHUNK_SIZE_CHARS}",
@@ -217,6 +246,7 @@ class TestSettings(unittest.TestCase):
                 [
                     "QDRANT_URL=http://127.0.0.1:6333",
                     "QDRANT_COLLECTION=documents",
+                    "QDRANT_VECTOR_SIZE=8",
                     "SQLITE_PATH=./data/app.db",
                     "STORAGE_DIR=./data/uploads",
                     f"CHUNK_SIZE_CHARS={DEFAULT_CHUNK_SIZE_CHARS}",
@@ -233,3 +263,24 @@ class TestSettings(unittest.TestCase):
                 Settings(_env_file=env_file)
 
         self.assertIn("CHUNK_OVERLAP_CHARS must be greater than or equal to 0.", str(ctx.exception))
+
+    # test_qdrant_vector_size_must_be_positive: deterministic dense schema must reject non-positive sizes.
+    def test_qdrant_vector_size_must_be_positive(self) -> None:
+        env_file = _write_env_file(
+            "\n".join(
+                [
+                    "QDRANT_URL=http://127.0.0.1:6333",
+                    "QDRANT_COLLECTION=documents",
+                    "QDRANT_VECTOR_SIZE=0",
+                    "LITELLM_MODEL=openai/gpt-4o-mini",
+                    "EMBEDDING_PROVIDER=local",
+                    "EMBEDDING_MODEL=text-embedding-3-small",
+                ]
+            )
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(ValidationError) as ctx:
+                Settings(_env_file=env_file)
+
+        self.assertIn("QDRANT_VECTOR_SIZE must be greater than 0.", str(ctx.exception))

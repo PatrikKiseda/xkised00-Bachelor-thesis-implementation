@@ -89,6 +89,9 @@ async def upload_document(
         chunk_size_chars=request.app.state.settings.chunk_size_chars,
         chunk_overlap_chars=request.app.state.settings.chunk_overlap_chars,
         embedding_client=request.app.state.embedding_client,
+        qdrant_store=request.app.state.qdrant_store,
+        qdrant_collection=request.app.state.settings.qdrant_collection,
+        qdrant_vector_size=request.app.state.settings.qdrant_vector_size,
     )
 
     # return of the created document metadata.

@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 os.environ.setdefault("QDRANT_URL", "http://127.0.0.1:6333")
 os.environ.setdefault("QDRANT_COLLECTION", "documents")
+os.environ.setdefault("QDRANT_VECTOR_SIZE", "8")
 os.environ.setdefault("LITELLM_MODEL", "openai/gpt-4o-mini")
 os.environ.setdefault("EMBEDDING_PROVIDER", "local")
 os.environ.setdefault("EMBEDDING_MODEL", "text-embedding-3-small")
@@ -33,12 +34,21 @@ class _HealthyStore:
     def check_connection(self) -> QdrantConnectionStatus:
         return QdrantConnectionStatus(reachable=True)
 
+    # ensure_collection: no-op in API tests; behavior is covered in qdrant_store unit tests.
+    def ensure_collection(self, *, collection_name: str, vector_size: int) -> None:
+        return None
+
+    # upsert_chunk_vectors: no-op for document API tests that only verify upload/indexing lifecycle.
+    def upsert_chunk_vectors(self, *, collection_name: str, vectors: list[object]) -> None:
+        return None
+
 # _build_settings: creates a validated baseline settings object for document API tests.
 def _build_settings(sqlite_path: str, storage_dir: str, **overrides: object) -> Settings:
     payload = {
         "app_name": "test-app",
         "qdrant_url": "http://test-qdrant:6333",
         "qdrant_collection": "documents",
+        "qdrant_vector_size": 8,
         "sqlite_path": sqlite_path,
         "storage_dir": storage_dir,
         "chunk_size_chars": 120,

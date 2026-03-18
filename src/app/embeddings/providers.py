@@ -83,6 +83,8 @@ def build_embedding_client(settings: Settings) -> EmbeddingClient:
         return DeterministicEmbeddingClient(
             provider=normalized_provider or "local",
             model=settings.embedding_model,
+            # set deterministic local vectors size to be aligned with configured Qdrant scheme.
+            vector_size=settings.qdrant_vector_size,
         )
 
     if normalized_provider == "openai":

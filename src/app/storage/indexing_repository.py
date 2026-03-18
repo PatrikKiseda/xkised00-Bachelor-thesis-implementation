@@ -31,6 +31,15 @@ class ChunkUpsert:
     token_count: int | None = None
     embedding_model: str | None = None
 
+
+# ChunkLookupRecord: chunk row used by dense query endpoint to hydrate hit content.
+@dataclass(slots=True)
+class ChunkLookupRecord:
+    id: str
+    document_id: str
+    chunk_index: int
+    content: str
+
 # list_jobs: retrieves a list of job records from the ```jobs``` table, optional filtering by document_id and limited in count.
 def create_job(
     db_path: str,
@@ -189,7 +198,46 @@ def replace_document_chunks(
             )
         connection.commit()
 
+# get_chunks_by_ids: retrieves chunk records from the ```chunks``` table based on a list of chunk IDs. Returns a mapping of chunk ID to ChunkLookupRecord.
+def get_chunks_by_ids(
+    db_path: str,
+    *,
+    chunk_ids: list[str],
+) -> dict[str, ChunkLookupRecord]:
+    if not chunk_ids:
+        return {}
 
+    placeholders = ",".join("?" for _ in chunk_ids)
+    query = f"""
+        SELECT id, document_id, chunk_index, content
+        FROM chunks
+        WHERE id IN ({placeholders})
+    """
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(query, chunk_ids).fetchall()
+
+    return {
+        str(row[0]): ChunkLookupRecord(
+            id=str(row[0]),
+            document_id=str(row[1]),
+            chunk_index=int(row[2]),
+            content=str(row[3]),
+        )
+        for row in rows
+    }
+
+# separate lookups and upserts for better clarity and separation of functions.
+
+# _row_to_chunk_lookup_record: helper to convert a SQL row tuple into a ChunkLookupRecord dataclass instance.
+def _row_to_chunk_lookup_record(row:  tuple[object, ...]) -> ChunkLookupRecord:
+    return ChunkLookupRecord(
+        id=str(row[0]),
+        document_id=str(row[1]),
+        chunk_index=int(row[2]),
+        content=str(row[3]),
+    ) 
+
+# _row_to_job_record: helper to convert a SQL row tuple into a JobRecord dataclass instance.
 def _row_to_job_record(row: tuple[object, ...]) -> JobRecord:
     return JobRecord(
         id=str(row[0]),

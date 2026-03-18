@@ -14,6 +14,7 @@ from app.embeddings.adapter import EmbeddingClient, EmbeddingItemResult
 from app.ingestion.chunker import chunk_text_recursive
 from app.ingestion.extractors import extract_text
 from app.storage.document_repository import update_document_status
+from app.storage.qdrant_store import ChunkVector, QdrantStore
 # Importing functions and classes related to job management and chunk persistence from the indexing repository.
 from app.storage.indexing_repository import (
     ChunkUpsert,
@@ -34,6 +35,9 @@ def run_indexing_pipeline(
     chunk_size_chars: int,
     chunk_overlap_chars: int,
     embedding_client: EmbeddingClient,
+    qdrant_store: QdrantStore,
+    qdrant_collection: str,
+    qdrant_vector_size: int,
 ) -> str:
     try:
         # Mark the job as running and update the document status to ```running``` at the start of the pipeline.
@@ -91,6 +95,13 @@ def run_indexing_pipeline(
         # The existing chunks for the document are replaced with the new ones generated from the extracted text.
         replace_document_chunks(db_path, document_id=document_id, chunks=chunks)
 
+        qdrant_vectors = _build_qdrant_vectors(
+            document_id=document_id,
+            chunk_texts=chunk_texts,
+            items_by_index=items_by_index,
+            expected_vector_size=qdrant_vector_size,
+        )
+
         # The payload is built and includes details about the embedding process. 
         payload_json = _build_embedding_payload_json(
             provider=embedding_result.provider,
@@ -98,6 +109,8 @@ def run_indexing_pipeline(
             total_chunks=len(chunk_texts),
             successful_embeddings=embedding_result.success_count,
             failed_items=failed_embedding_items,
+            indexed_dense_vectors=0,
+            dense_index_error=None,
         )
 
         # Still fail a job when no chunk gets a successful embedding.
@@ -110,6 +123,49 @@ def run_indexing_pipeline(
                 payload_json=payload_json,
             )
             return "fail"
+
+        # Dense indexing: upsert successful vectors into Qdrant.
+        # This step is attempted even if some embeddings fail, allow us to partially index even when not all chunks could be embedded. 
+        try:
+            qdrant_store.ensure_collection(
+                collection_name=qdrant_collection,
+                vector_size=qdrant_vector_size,
+            )
+            qdrant_store.upsert_chunk_vectors(
+                collection_name=qdrant_collection,
+                vectors=qdrant_vectors,
+            )
+        # All exceptions from the Qdrant operations logic are caught, even if some embeddings were sucesfull and chunks were stored in SQLite,
+        # the failure is still saved with details about the embedding sucess. 
+        except Exception as exc:
+            failure_payload = _build_embedding_payload_json(
+                provider=embedding_result.provider,
+                model=embedding_result.model,
+                total_chunks=len(chunk_texts),
+                successful_embeddings=embedding_result.success_count,
+                failed_items=failed_embedding_items,
+                indexed_dense_vectors=0,
+                dense_index_error=str(exc),
+            )
+            _persist_failure(
+                db_path=db_path,
+                document_id=document_id,
+                job_id=job_id,
+                error_message=f"Failed to index vectors in Qdrant: {exc}",
+                payload_json=failure_payload,
+            )
+            return "fail"
+        # If the Qdrant indexing is successful, the job is marked as successful with the embedding and indexing details included in the saved payload.
+        # The document status is updated to ```success```.
+        payload_json = _build_embedding_payload_json(
+            provider=embedding_result.provider,
+            model=embedding_result.model,
+            total_chunks=len(chunk_texts),
+            successful_embeddings=embedding_result.success_count,
+            failed_items=failed_embedding_items,
+            indexed_dense_vectors=len(qdrant_vectors),
+            dense_index_error=None,
+        )
 
         mark_job_success(db_path, job_id=job_id, payload_json=payload_json)
         update_document_status(db_path, document_id=document_id, status="success")
@@ -164,6 +220,8 @@ def _build_embedding_payload_json(
     total_chunks: int,
     successful_embeddings: int,
     failed_items: list[EmbeddingItemResult],
+    indexed_dense_vectors: int,
+    dense_index_error: str | None,
 ) -> str:
     warning_errors = [
         {
@@ -180,6 +238,44 @@ def _build_embedding_payload_json(
             "successful_embeddings": successful_embeddings,
             "failed_embeddings": len(failed_items),
             "warnings": warning_errors,
-        }
+        },
+        "dense_indexing": {
+            "indexed_vectors": indexed_dense_vectors,
+            "error": dense_index_error,
+        },
     }
     return json.dumps(payload, ensure_ascii=True)
+
+
+# _build_qdrant_vectors: conversion of successful embedding vectors into Qdrant upsert entries.
+def _build_qdrant_vectors(
+    *,
+    document_id: str,
+    chunk_texts: list[str],
+    items_by_index: dict[int, EmbeddingItemResult],
+    expected_vector_size: int,
+) -> list[ChunkVector]:
+    vectors: list[ChunkVector] = []
+    # The loop to iterate through each chunk index and its text, also checking the embedding result for each chunk.
+    for chunk_index, _ in enumerate(chunk_texts):
+        item = items_by_index.get(chunk_index)
+        if not _is_embedding_success(item):
+            continue # Skip 
+
+        assert item is not None
+        assert item.vector is not None
+        if len(item.vector) != expected_vector_size:
+            raise ValueError(
+                f"Embedding vector size mismatch for chunk index {chunk_index}: "
+                f"got {len(item.vector)}, expected {expected_vector_size}."
+            )
+
+        vectors.append(
+            ChunkVector(
+                chunk_id=build_chunk_id(document_id, chunk_index),
+                document_id=document_id,
+                chunk_index=chunk_index,
+                vector=item.vector,
+            )
+        )
+    return vectors

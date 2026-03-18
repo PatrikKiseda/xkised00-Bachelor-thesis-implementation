@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 # bootstrap env: provide critical settings so importing app.main does not fail.
 os.environ.setdefault("QDRANT_URL", "http://127.0.0.1:6333")
 os.environ.setdefault("QDRANT_COLLECTION", "documents")
+os.environ.setdefault("QDRANT_VECTOR_SIZE", "8")
 os.environ.setdefault("LITELLM_MODEL", "openai/gpt-4o-mini")
 os.environ.setdefault("EMBEDDING_PROVIDER", "local")
 os.environ.setdefault("EMBEDDING_MODEL", "text-embedding-3-small")
@@ -32,6 +33,7 @@ def _build_settings(**overrides: object) -> Settings:
         "app_name": "test-app",
         "qdrant_url": "http://test-qdrant:6333",
         "qdrant_collection": "documents",
+        "qdrant_vector_size": 8,
         "sqlite_path": ":memory:",
         "litellm_model": "openai/gpt-4o-mini",
         "embedding_provider": "local",
@@ -47,12 +49,24 @@ class _HealthyStore:
     def check_connection(self) -> QdrantConnectionStatus:
         return QdrantConnectionStatus(reachable=True)
 
+    def ensure_collection(self, *, collection_name: str, vector_size: int) -> None:
+        return None
+
+    def upsert_chunk_vectors(self, *, collection_name: str, vectors: list[object]) -> None:
+        return None
+
 
 # _UnhealthyStore: fake store reporting unhealthy Qdrant connection. Used for negative health endpoint tests.
 class _UnhealthyStore:
     # check_connection: returns an unreachable status for degraded health tests.
     def check_connection(self) -> QdrantConnectionStatus:
         return QdrantConnectionStatus(reachable=False, error="qdrant unreachable")
+
+    def ensure_collection(self, *, collection_name: str, vector_size: int) -> None:
+        return None
+
+    def upsert_chunk_vectors(self, *, collection_name: str, vectors: list[object]) -> None:
+        return None
 
 
 # TestHealthEndpoint: verifies health output for both reachable and unreachable states.

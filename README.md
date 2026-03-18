@@ -119,6 +119,11 @@ This creates the local metadata/job-tracking foundation for upcoming ingestion a
   - supports filters: `document_id` and `limit`
   - used to observe pending/running/success/fail job transitions and persisted errors
 
+- `POST /api/query/dense`
+  - runs dense retrieval against Qdrant
+  - request body: `query`, optional `top_k` (default `5`)
+  - response returns chunk references + similarity score + hydrated chunk content
+
 ### Upload response payload (`201`)
 
 - `id`
@@ -163,10 +168,25 @@ Extraction failures for supported file types (for example malformed PDF) are now
   - provider/model come from `EMBEDDING_PROVIDER` and `EMBEDDING_MODEL`
   - if `EMBEDDING_API_ENABLED=true`, provider registry uses API client (OpenAI in this prototype)
   - if `EMBEDDING_API_ENABLED=false`, deterministic non-API client is used for tests/dev
-  - vectors are currently ephemeral (not persisted yet), but chunk-level `embedding_model` is set for successful embeddings
+  - successful vectors are persisted into Qdrant using minimal payload refs (`chunk_id`, `document_id`, `chunk_index`)
 - embedding failure policy:
   - partial embedding failures keep job `success` and write warning stats into `jobs.payload_json`
   - if all chunk embeddings fail, job is marked `fail` with persisted payload/error summary
+- dense indexing policy:
+  - deterministic vector schema is enforced via required `QDRANT_VECTOR_SIZE`
+  - Qdrant collection uses cosine distance in v1
+  - if Qdrant upsert fails after SQLite chunk persistence, job/document are marked `fail`
+
+## Dense query behavior
+
+- endpoint: `POST /api/query/dense`
+- request body:
+  - `query` (required, non-empty)
+  - `top_k` (optional, `1..50`, default `5`)
+- response body:
+  - `mode`, `query`
+  - `hits`: list of `{chunk_id, document_id, chunk_index, score, content}`
+- if the dense index is empty, returns `200` with `hits: []`
 
 ## Enable embedding service
 
@@ -176,6 +196,7 @@ To run API embeddings currently:
 - `EMBEDDING_MODEL=text-embedding-3-small` (or another supported OpenAI embedding model)
 - `OPENAI_API_KEY=<real-provider-key>`
 - `EMBEDDING_API_ENABLED=true`
+- `QDRANT_VECTOR_SIZE=1536` (for `text-embedding-3-small`)
 
 ### Local usage
 
@@ -205,6 +226,11 @@ curl http://127.0.0.1:8000/api/documents
 
 # list indexing jobs
 curl "http://127.0.0.1:8000/api/jobs?limit=20"
+
+# dense query (after indexing)
+curl -X POST http://127.0.0.1:8000/api/query/dense \
+  -H "Content-Type: application/json" \
+  -d '{"query":"alpha beta","top_k":5}'
 ```
 
 ## Future opportunities / roadmap

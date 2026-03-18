@@ -83,6 +83,25 @@ class _AllFailEmbeddingClient:
         )
 
 
+# _RecordingQdrantStore: captures dense indexing calls for assertions in pipeline tests.
+class _RecordingQdrantStore:
+    def __init__(self) -> None:
+        self.ensure_calls: list[tuple[str, int]] = []
+        self.upsert_calls: list[tuple[str, int]] = []
+
+    def ensure_collection(self, *, collection_name: str, vector_size: int) -> None:
+        self.ensure_calls.append((collection_name, vector_size))
+
+    def upsert_chunk_vectors(self, *, collection_name: str, vectors: list[object]) -> None:
+        self.upsert_calls.append((collection_name, len(vectors)))
+
+
+# _FailingQdrantStore: simulates qdrant upsert failure after SQLite persistence.
+class _FailingQdrantStore(_RecordingQdrantStore):
+    def upsert_chunk_vectors(self, *, collection_name: str, vectors: list[object]) -> None:
+        raise RuntimeError("simulated qdrant write failure")
+
+
 # TestIndexingPipeline: verifies chunk persistence, embedding metadata, and job transitions.
 class TestIndexingPipeline(unittest.TestCase):
     # _prepare_document_and_job: helper to avoid repeating setup boilerplate per test.
@@ -110,6 +129,24 @@ class TestIndexingPipeline(unittest.TestCase):
         )
         return db_path
 
+    # test_create_job_returns_complete_job_record: job row mapping should include id/type/status fields.
+    def test_create_job_returns_complete_job_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(initialize_sqlite_schema(str(Path(temp_dir) / "app.db")))
+
+            job = create_job(
+                db_path,
+                job_id="job-1",
+                job_type="indexing",
+                document_id="doc-1",
+                status="pending",
+            )
+
+            self.assertEqual(job.id, "job-1")
+            self.assertEqual(job.job_type, "indexing")
+            self.assertEqual(job.status, "pending")
+            self.assertEqual(job.document_id, "doc-1")
+
     # test_success_persists_chunks_and_embedding_payload: all-success embedding keeps success status with stats payload.
     def test_success_persists_chunks_and_embedding_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -119,6 +156,7 @@ class TestIndexingPipeline(unittest.TestCase):
                 source_name="doc.txt",
                 source_bytes=("Alpha beta gamma " * 80).encode("utf-8"),
             )
+            store = _RecordingQdrantStore()
 
             outcome = run_indexing_pipeline(
                 db_path=db_path,
@@ -129,6 +167,9 @@ class TestIndexingPipeline(unittest.TestCase):
                 chunk_size_chars=100,
                 chunk_overlap_chars=15,
                 embedding_client=_SuccessEmbeddingClient(),
+                qdrant_store=store,
+                qdrant_collection="documents",
+                qdrant_vector_size=2,
             )
             self.assertEqual(outcome, "success")
 
@@ -158,6 +199,9 @@ class TestIndexingPipeline(unittest.TestCase):
             self.assertEqual(embedding_payload.get("successful_embeddings"), len(chunk_rows))
             self.assertEqual(embedding_payload.get("failed_embeddings"), 0)
             self.assertEqual(embedding_payload.get("warnings"), [])
+            dense_payload = payload.get("dense_indexing", {})
+            self.assertEqual(dense_payload.get("indexed_vectors"), len(chunk_rows))
+            self.assertIsNone(dense_payload.get("error"))
 
             self.assertGreater(len(chunk_rows), 1)
             self.assertEqual(fts_count, len(chunk_rows))
@@ -165,6 +209,8 @@ class TestIndexingPipeline(unittest.TestCase):
                 self.assertEqual(chunk_id, f"doc-1:{chunk_index:06d}")
                 self.assertTrue(content)
                 self.assertEqual(embedding_model, "test-embedding-model")
+            self.assertEqual(store.ensure_calls, [("documents", 2)])
+            self.assertEqual(len(store.upsert_calls), 1)
 
     # test_partial_embedding_failures_keep_job_success: partial failures should preserve success with warning payload.
     def test_partial_embedding_failures_keep_job_success(self) -> None:
@@ -175,6 +221,7 @@ class TestIndexingPipeline(unittest.TestCase):
                 source_name="doc.txt",
                 source_bytes=("Alpha beta gamma " * 60).encode("utf-8"),
             )
+            store = _RecordingQdrantStore()
 
             outcome = run_indexing_pipeline(
                 db_path=db_path,
@@ -185,6 +232,9 @@ class TestIndexingPipeline(unittest.TestCase):
                 chunk_size_chars=90,
                 chunk_overlap_chars=15,
                 embedding_client=_PartialFailEmbeddingClient(),
+                qdrant_store=store,
+                qdrant_collection="documents",
+                qdrant_vector_size=2,
             )
             self.assertEqual(outcome, "success")
 
@@ -210,6 +260,9 @@ class TestIndexingPipeline(unittest.TestCase):
             embedding_payload = payload.get("embedding", {})
             self.assertGreater(embedding_payload.get("failed_embeddings", 0), 0)
             self.assertGreater(len(embedding_payload.get("warnings", [])), 0)
+            dense_payload = payload.get("dense_indexing", {})
+            self.assertGreater(dense_payload.get("indexed_vectors", 0), 0)
+            self.assertIsNone(dense_payload.get("error"))
 
             self.assertGreater(len(chunk_rows), 1)
             for chunk_index, embedding_model in chunk_rows:
@@ -217,6 +270,8 @@ class TestIndexingPipeline(unittest.TestCase):
                     self.assertIsNone(embedding_model)
                 else:
                     self.assertEqual(embedding_model, "test-embedding-model")
+            self.assertEqual(store.ensure_calls, [("documents", 2)])
+            self.assertEqual(len(store.upsert_calls), 1)
 
     # test_all_embedding_failures_mark_job_fail_but_keep_chunks: all failures should fail job but keep persisted chunks.
     def test_all_embedding_failures_mark_job_fail_but_keep_chunks(self) -> None:
@@ -227,6 +282,7 @@ class TestIndexingPipeline(unittest.TestCase):
                 source_name="doc.txt",
                 source_bytes=("Alpha beta gamma " * 50).encode("utf-8"),
             )
+            store = _RecordingQdrantStore()
 
             outcome = run_indexing_pipeline(
                 db_path=db_path,
@@ -237,6 +293,9 @@ class TestIndexingPipeline(unittest.TestCase):
                 chunk_size_chars=90,
                 chunk_overlap_chars=15,
                 embedding_client=_AllFailEmbeddingClient(),
+                qdrant_store=store,
+                qdrant_collection="documents",
+                qdrant_vector_size=2,
             )
             self.assertEqual(outcome, "fail")
 
@@ -264,6 +323,61 @@ class TestIndexingPipeline(unittest.TestCase):
             embedding_payload = payload.get("embedding", {})
             self.assertEqual(embedding_payload.get("successful_embeddings"), 0)
             self.assertEqual(embedding_payload.get("failed_embeddings"), chunk_count)
+            dense_payload = payload.get("dense_indexing", {})
+            self.assertEqual(dense_payload.get("indexed_vectors"), 0)
+            self.assertIsNone(dense_payload.get("error"))
+            self.assertEqual(store.ensure_calls, [])
+            self.assertEqual(store.upsert_calls, [])
+
+    # test_qdrant_upsert_failure_marks_job_fail: qdrant write errors should fail indexing after sqlite chunk persistence.
+    def test_qdrant_upsert_failure_marks_job_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            db_path = self._prepare_document_and_job(
+                temp_path=temp_path,
+                source_name="doc.txt",
+                source_bytes=("Alpha beta gamma " * 40).encode("utf-8"),
+            )
+
+            outcome = run_indexing_pipeline(
+                db_path=db_path,
+                document_id="doc-1",
+                filename="doc.txt",
+                source_path=str(temp_path / "doc.txt"),
+                job_id="job-1",
+                chunk_size_chars=100,
+                chunk_overlap_chars=15,
+                embedding_client=_SuccessEmbeddingClient(),
+                qdrant_store=_FailingQdrantStore(),
+                qdrant_collection="documents",
+                qdrant_vector_size=2,
+            )
+            self.assertEqual(outcome, "fail")
+
+            with sqlite3.connect(db_path) as connection:
+                job_row = connection.execute(
+                    "SELECT status, error_message, payload_json FROM jobs WHERE id = 'job-1'"
+                ).fetchone()
+                document_row = connection.execute(
+                    "SELECT status FROM documents WHERE id = 'doc-1'"
+                ).fetchone()
+                chunk_count = connection.execute(
+                    "SELECT COUNT(*) FROM chunks WHERE document_id = 'doc-1'"
+                ).fetchone()[0]
+
+            self.assertIsNotNone(job_row)
+            self.assertIsNotNone(document_row)
+            assert job_row is not None
+            assert document_row is not None
+            self.assertEqual(job_row[0], "fail")
+            self.assertIn("Failed to index vectors in Qdrant", job_row[1] or "")
+            self.assertEqual(document_row[0], "fail")
+            self.assertGreater(chunk_count, 0)
+
+            payload = json.loads(job_row[2] or "{}")
+            dense_payload = payload.get("dense_indexing", {})
+            self.assertEqual(dense_payload.get("indexed_vectors"), 0)
+            self.assertIn("simulated qdrant write failure", dense_payload.get("error", ""))
 
     # test_failure_marks_job_and_document_as_fail: extraction errors should still fail before embedding step.
     def test_failure_marks_job_and_document_as_fail(self) -> None:
@@ -284,6 +398,9 @@ class TestIndexingPipeline(unittest.TestCase):
                 chunk_size_chars=1000,
                 chunk_overlap_chars=150,
                 embedding_client=_SuccessEmbeddingClient(),
+                qdrant_store=_RecordingQdrantStore(),
+                qdrant_collection="documents",
+                qdrant_vector_size=2,
             )
             self.assertEqual(outcome, "fail")
 
