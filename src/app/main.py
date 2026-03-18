@@ -13,6 +13,7 @@ from fastapi import FastAPI
 
 from app.api.documents import router as documents_router
 from app.api.jobs import router as jobs_router
+from app.api.query import router as query_router
 from app.core.settings import Settings, get_settings
 from app.embeddings.adapter import EmbeddingClient
 from app.embeddings.providers import build_embedding_client
@@ -56,6 +57,7 @@ def create_app(
     app = FastAPI(title=resolved_settings.app_name, lifespan=lifespan)
     app.include_router(documents_router)
     app.include_router(jobs_router)
+    app.include_router(query_router)
 
 
     # health endpoint decorator: exposing runtime health snapshot for app + Qdrant.
