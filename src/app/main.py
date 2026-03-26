@@ -67,6 +67,12 @@ def create_app(
     app.include_router(jobs_router)
     app.include_router(query_router)
 
+    # localhost_ui endpoint decorator: serve a simple static HTML page for localhost to the app.
+    @app.get("/", response_class=HTMLResponse)
+    def localhost_ui() -> HTMLResponse:
+        ui_path = Path(__file__).resolve().parent / "ui" / "index.html"
+        return HTMLResponse(content=ui_path.read_text(encoding="utf-8"))
+
     # health endpoint decorator: exposing runtime health snapshot for app + Qdrant.
     @app.get("/api/health")
     # health: returns current Qdrant reachability and startup-time reachability details.

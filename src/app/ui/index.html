@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Localhost RAG app UI</title>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+
+    body {
+      font-family: sans-serif;
+      line-height: 1.5;
+      margin: 2rem;
+      max-width: 900px;
+    }
+
+    form,
+    section {
+      margin-bottom: 1.5rem;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+    }
+
+    textarea,
+    input[type="text"] {
+      box-sizing: border-box;
+      font: inherit;
+      min-height: 7rem;
+      padding: 0.6rem;
+      resize: vertical;
+      width: 100%;
+    }
+
+    textarea[readonly] {
+      background: #dddddd;
+      min-height: 30rem;
+    }
+
+    .checkbox-row {
+      margin: 0.5rem 0;
+    }
+
+    .checkbox-row label {
+      display: inline;
+      font-weight: 400;
+      margin-left: 0.35rem;
+    }
+
+    .actions {
+      margin-top: 1rem;
+    }
+
+    .status {
+      min-height: 1.5rem;
+    }
+
+    .panel {
+      border: 1px solid #cfcfcf;
+      padding: 1rem;
+    }
+
+    .source-item,
+    .chunk-item {
+      border-top: 1px solid #ddd;
+      padding: 0.75rem 0;
+    }
+
+    .source-item:first-child,
+    .chunk-item:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .meta {
+      color: #444;
+      font-size: 0.95rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .text-block {
+      white-space: pre-wrap;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Localhost RAG app UI</h1>
+    <p>Submit a query, generate an answer, and optionally inspect the grounded prompt and retrieved chunks.</p>
+  </header>
+
+  <!-- Singular form for the RAG application -->
+  <form id="queryForm">
+    <div>
+      <label for="queryInput">Query</label>
+      <textarea id="queryInput" name="query" placeholder="Ask a question about your indexed documents." required></textarea>
+    </div>
+
+    <!-- Checkbox: if retrieved chunks should be injected into the final LiteLLM prompt. -->
+    <div class="checkbox-row">
+      <input id="includeContext" name="includeContext" type="checkbox" checked>
+      <label for="includeContext">Include retrieved context in prompt</label>
+    </div>
+
+    <!-- Checkbox: when checked, UI makes an extra debug call to show prompt + retrieved chunks. -->
+    <div class="checkbox-row">
+      <input id="showPromptDebug" name="showPromptDebug" type="checkbox">
+      <label for="showPromptDebug">Show prompt debug</label>
+    </div>
+
+    <div class="actions">
+      <button id="submitButton" type="submit">Run query</button>
+    </div>
+  </form>
+
+  <!-- Status area for loading, success and error messages. -->
+  <p id="statusMessage" class="status" aria-live="polite"></p>
+
+  <!-- Read-only answer field for the generated text -->
+  <section class="panel">
+    <h2>Answer</h2>
+    <label for="answerOutput">Generated answer</label>
+    <textarea id="answerOutput" readonly placeholder="The generated answer will appear here."></textarea>
+  </section>
+
+  <!-- The cited sources area lists the retrieved chunks returned by the answer endpoint. -->
+  <section class="panel">
+    <h2>Cited sources</h2>
+    <div id="sourcesOutput">No sources yet.</div>
+  </section>
+
+  <!-- Debug section stays hidden unless the checkbox for it is checked. -->
+  <section id="debugSection" class="panel" hidden>
+    <h2>Prompt debug</h2>
+
+    <label for="promptOutput">Final prompt</label>
+    <textarea id="promptOutput" readonly placeholder="The final prompt will appear here when debug is enabled."></textarea>
+
+    <h3>Retrieved chunks</h3>
+    <div id="chunksOutput">No debug chunks yet.</div>
+  </section>
+
+  <script>
+    // Cache of all DOM elements once so the event handler stays small.
+    const queryForm = document.getElementById("queryForm");
+    const queryInput = document.getElementById("queryInput");
+    const includeContextCheckbox = document.getElementById("includeContext");
+    const showPromptDebugCheckbox = document.getElementById("showPromptDebug");
+    const submitButton = document.getElementById("submitButton");
+    const statusMessage = document.getElementById("statusMessage");
+    const answerOutput = document.getElementById("answerOutput");
+    const sourcesOutput = document.getElementById("sourcesOutput");
+    const debugSection = document.getElementById("debugSection");
+    const promptOutput = document.getElementById("promptOutput");
+    const chunksOutput = document.getElementById("chunksOutput");
+
+    // Fixed defaults.
+    const DEFAULT_QUERY_MODE = "dense";
+    const DEFAULT_TOP_K = 5;
+
+    // Toggle the loading state in one place so the button/status always stay in sync.
+    function setLoadingState(isLoading, message) {
+      submitButton.disabled = isLoading;
+      submitButton.textContent = isLoading ? "Running..." : "Run query";
+      statusMessage.textContent = message;
+    }
+
+    // Render the sources returned by the answer endpoint.
+    function renderSources(sources) {
+      if (!Array.isArray(sources) || sources.length === 0) {
+        sourcesOutput.textContent = "No sources returned.";
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+
+      sources.forEach((source) => {
+        const wrapper = document.createElement("article");
+        wrapper.className = "source-item";
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent = [
+          source.source_id || "source",
+          source.filename || "unknown file",
+          `chunk ${source.chunk_index}`,
+          typeof source.score === "number" ? `score ${source.score.toFixed(4)}` : null,
+        ].filter(Boolean).join(" | ");
+
+        const content = document.createElement("div");
+        content.className = "text-block";
+        content.textContent = source.content || "";
+
+        wrapper.append(meta, content);
+        fragment.appendChild(wrapper);
+      });
+
+      sourcesOutput.replaceChildren(fragment);
+    }
+
+    // Render the retrieved chunks from the prompt-debug endpoint.
+    function renderDebugChunks(chunks) {
+      if (!Array.isArray(chunks) || chunks.length === 0) {
+        chunksOutput.textContent = "No retrieved chunks returned.";
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+
+      chunks.forEach((chunk) => {
+        const wrapper = document.createElement("article");
+        wrapper.className = "chunk-item";
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent = [
+          chunk.source_id || "source",
+          chunk.filename || "unknown file",
+          `chunk ${chunk.chunk_index}`,
+          typeof chunk.score === "number" ? `score ${chunk.score.toFixed(4)}` : null,
+        ].filter(Boolean).join(" | ");
+
+        const content = document.createElement("div");
+        content.className = "text-block";
+        content.textContent = chunk.content || "";
+
+        wrapper.append(meta, content);
+        fragment.appendChild(wrapper);
+      });
+
+      chunksOutput.replaceChildren(fragment);
+    }
+
+    // Small helper to convert non-2xx responses into readable UI errors.
+    async function parseErrorResponse(response) {
+      try {
+        const data = await response.json();
+        if (typeof data.detail === "string" && data.detail.trim() !== "") {
+          return data.detail;
+        }
+      } catch (error) {
+        // Ignore JSON parsing errors and fall back to a generic message below.
+      }
+
+      return `Request failed with status ${response.status}.`;
+    }
+
+    // Reset only the debug-specific fields when debug mode is off or before a new request.
+    function clearDebugOutput() {
+      promptOutput.value = "";
+      chunksOutput.textContent = "No debug chunks yet.";
+    }
+
+    // Main form handler: answer request first, optional prompt-debug request second.
+    queryForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const query = queryInput.value.trim();
+      const includeContextInPrompt = includeContextCheckbox.checked;
+      const showPromptDebug = showPromptDebugCheckbox.checked;
+
+      if (query === "") {
+        statusMessage.textContent = "Please enter a query.";
+        queryInput.focus();
+        return;
+      }
+
+      const payload = {
+        query,
+        mode: DEFAULT_QUERY_MODE,
+        top_k: DEFAULT_TOP_K,
+        include_context_in_prompt: includeContextInPrompt,
+      };
+
+      debugSection.hidden = !showPromptDebug;
+      clearDebugOutput();
+      answerOutput.value = "";
+      sourcesOutput.textContent = "No sources yet.";
+      setLoadingState(true, "Running RAG query...");
+
+      try {
+        const answerResponse = await fetch("/api/query/answer", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!answerResponse.ok) {
+          throw new Error(await parseErrorResponse(answerResponse));
+        }
+
+        const answerData = await answerResponse.json();
+        answerOutput.value = answerData.answer || "";
+        renderSources(answerData.sources || []);
+
+        if (showPromptDebug) {
+          statusMessage.textContent = "Answer loaded. Fetching prompt debug...";
+
+          const debugResponse = await fetch("/api/query/prompt-debug", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          });
+
+          if (!debugResponse.ok) {
+            throw new Error(await parseErrorResponse(debugResponse));
+          }
+
+          const debugData = await debugResponse.json();
+          promptOutput.value = debugData.prompt || "";
+          renderDebugChunks(debugData.sources || []);
+        }
+
+        setLoadingState(false, showPromptDebug ? "Answer and prompt debug loaded." : "Answer loaded.");
+      } catch (error) {
+        setLoadingState(false, error instanceof Error ? error.message : "Something went wrong.");
+      }
+    });
+  </script>
+</body>
+</html>
