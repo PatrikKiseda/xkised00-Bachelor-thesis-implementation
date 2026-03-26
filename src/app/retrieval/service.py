@@ -12,7 +12,7 @@ from typing import Literal, Protocol
 from fastapi import HTTPException
 
 from app.embeddings.adapter import EmbeddingClient
-from app.storage.indexing_repository import get_chunks_by_ids
+from app.storage.indexing_repository import get_chunks_by_ids, search_chunks_lexical
 from app.storage.qdrant_store import QdrantStore
 
 RetrievalMode = Literal["dense", "lexical", "hybrid"]
@@ -101,6 +101,33 @@ class DenseRetriever:
 
         return retrieved_chunks
 
+# LexicalRetriever: implementation of Retriever for lexical search using SQLite FTS5.
+@dataclass(slots=True)
+class LexicalRetriever:
+    db_path: str
+    mode: RetrievalMode = "lexical"
+
+    # retrieve: run SQLite FTS5 lexical search and normalize the hits.
+    def retrieve(self, *, query: str, top_k: int) -> list[RetrievedChunk]:
+        lexical_rows = search_chunks_lexical(
+            self.db_path,
+            query_text=query,
+            limit=top_k,
+        )
+
+        return [
+            RetrievedChunk(
+                source_id=f"S{index}",
+                chunk_id=row.chunk_id,
+                document_id=row.document_id,
+                filename=row.filename,
+                chunk_index=row.chunk_index,
+                score=max(0.0, -row.raw_score),
+                content=row.content,
+            )
+            for index, row in enumerate(lexical_rows, start=1)
+        ]
+
 
 # build_retriever: select the active retriever while reserving lexical/hybrid for later work.
 def build_retriever(
@@ -120,6 +147,8 @@ def build_retriever(
             qdrant_collection=qdrant_collection,
             qdrant_vector_size=qdrant_vector_size,
         )
+    if mode == "lexical":
+        return LexicalRetriever(db_path=db_path)
 
     raise HTTPException(
         status_code=501,
