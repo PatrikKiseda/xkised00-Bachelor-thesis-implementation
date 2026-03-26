@@ -253,5 +253,9 @@ class TestAnswerApi(unittest.TestCase):
                 response = client.get("/")
 
             self.assertEqual(response.status_code, 200)
+<<<<<<< HEAD
             self.assertIn("Localhost RAG UI", response.text)
+=======
+            self.assertIn("Localhost RAG app UI", response.text)
+>>>>>>> b90e808 (fix(test): bugfix for the frontend assert bug)
             self.assertIn("/api/query/answer", response.text)
