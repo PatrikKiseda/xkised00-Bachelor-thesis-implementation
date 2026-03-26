@@ -37,6 +37,7 @@ class ChunkUpsert:
 class ChunkLookupRecord:
     id: str
     document_id: str
+    filename: str | None
     chunk_index: int
     content: str
 
@@ -209,9 +210,10 @@ def get_chunks_by_ids(
 
     placeholders = ",".join("?" for _ in chunk_ids)
     query = f"""
-        SELECT id, document_id, chunk_index, content
+        SELECT chunks.id, chunks.document_id, chunks.chunk_index, chunks.content, documents.filename
         FROM chunks
-        WHERE id IN ({placeholders})
+        LEFT JOIN documents ON documents.id = chunks.document_id
+        WHERE chunks.id IN ({placeholders})
     """
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute(query, chunk_ids).fetchall()
@@ -220,6 +222,7 @@ def get_chunks_by_ids(
         str(row[0]): ChunkLookupRecord(
             id=str(row[0]),
             document_id=str(row[1]),
+            filename=str(row[4]) if row[4] is not None else None,
             chunk_index=int(row[2]),
             content=str(row[3]),
         )
@@ -233,6 +236,7 @@ def _row_to_chunk_lookup_record(row:  tuple[object, ...]) -> ChunkLookupRecord:
     return ChunkLookupRecord(
         id=str(row[0]),
         document_id=str(row[1]),
+        filename=str(row[4]) if row[4] is not None else None,
         chunk_index=int(row[2]),
         content=str(row[3]),
     ) 
