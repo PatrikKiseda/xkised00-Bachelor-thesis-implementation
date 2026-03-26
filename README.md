@@ -2,7 +2,7 @@
 
 This repository contains the source code for the thesis implementation.
 
-Current goal: making the system work reliably on `localhost` first (ingestion -> indexing -> retrieval -> answer generation), with a simple local UI and a retrieval contract that stays ready for later lexical and hybrid retrieval work.
+Current goal: making the system work reliably on `localhost` first (ingestion -> indexing -> retrieval -> answer generation). Possibility of UI and remote deployment.
 
 ## Structure of the repository
 
@@ -124,19 +124,6 @@ This creates the local metadata/job-tracking foundation for upcoming ingestion a
   - request body: `query`, optional `top_k` (default `5`)
   - response returns chunk references + similarity score + hydrated chunk content
 
-- `POST /api/query/answer`
-  - runs retrieval first, then generates a grounded answer from the retrieved chunks
-  - request body: `query`, optional `top_k` (default `5`), optional `mode` (default `dense`), optional `include_context_in_prompt` (default `true`)
-  - response returns `mode`, `query`, `answer`, and `sources`
-
-- `POST /api/query/prompt-debug`
-  - builds the final answer-generation prompt without calling the LLM
-  - request body matches `POST /api/query/answer`
-  - response returns `mode`, `query`, `include_context_in_prompt`, `prompt`, and `sources`
-
-- `GET /`
-  - serves a plain localhost HTML page for upload, prompt debug, answer generation, and source inspection
-
 ### Upload response payload (`201`)
 
 - `id`
@@ -201,41 +188,6 @@ Extraction failures for supported file types (for example malformed PDF) are now
   - `hits`: list of `{chunk_id, document_id, chunk_index, score, content}`
 - if the dense index is empty, returns `200` with `hits: []`
 
-## Answer generation behavior
-
-- retrieval and generation are separated:
-  - dense retrieval is resolved through a shared retrieval contract
-  - answer generation only receives hydrated retrieved chunks and does not call Qdrant directly
-- endpoint: `POST /api/query/answer`
-- request body:
-  - `query` (required, non-empty)
-  - `top_k` (optional, `1..50`, default `5`)
-  - `mode` (optional, default `dense`)
-  - `include_context_in_prompt` (optional, default `true`)
-- response body:
-  - `mode`, `query`, `answer`
-  - `sources`: list of `{source_id, chunk_id, document_id, filename, chunk_index, score, content}`
-- prompt construction:
-  - uses numbered source ids like `[S1]`, `[S2]` when retrieved chunks are included in the prompt
-- no-hit behavior:
-  - if retrieval returns no chunks and `include_context_in_prompt=true`, the API still calls the LLM with a simple prompt that says there was no retrieved context
-  - if retrieval returns no chunks, the response still returns `sources: []`
-- prompt debug:
-  - `POST /api/query/prompt-debug` returns the final prompt plus retrieved sources
-  - if `include_context_in_prompt=false`, the final prompt is just the raw user query
-- mode support today:
-  - `dense` is implemented
-  - `lexical` and `hybrid` are reserved in the request contract and currently return `501 Not Implemented`
-
-Prompt modes:
-
-- `include_context_in_prompt=true` and retrieval returns hits:
-  - grounded prompt with retrieved chunks
-- `include_context_in_prompt=true` and retrieval returns no hits:
-  - simple no-context prompt sent to the LLM
-- `include_context_in_prompt=false`:
-  - raw user query sent directly to the LLM
-
 ## Enable embedding service
 
 To run API embeddings currently:
@@ -245,19 +197,6 @@ To run API embeddings currently:
 - `OPENAI_API_KEY=<real-provider-key>`
 - `EMBEDDING_API_ENABLED=true`
 - `QDRANT_VECTOR_SIZE=1536` (for `text-embedding-3-small`)
-
-## Generation service and required env vars
-
-For the current answer-generation flow:
-
-- `LITELLM_MODEL=openai/gpt-5.4-mini`
-- `OPENAI_API_KEY=<real-provider-key>`
-
-Notes:
-
-- the same `OPENAI_API_KEY` is used for both embeddings and answer generation when you run the OpenAI path
-- test mode can still use deterministic local embeddings with `EMBEDDING_API_ENABLED=false`
-- even if embeddings are local, answer generation still needs a working LiteLLM provider if you want the full end-to-end answer flow
 
 ### Local usage
 
@@ -271,8 +210,6 @@ Notes:
    - `make qdrant-down`
 5. Run app:
    - `make app-run`
-6. Open the localhost UI:
-   - `http://127.0.0.1:8000/`
 
 ### Quick API examples
 
@@ -294,46 +231,7 @@ curl "http://127.0.0.1:8000/api/jobs?limit=20"
 curl -X POST http://127.0.0.1:8000/api/query/dense \
   -H "Content-Type: application/json" \
   -d '{"query":"alpha beta","top_k":5}'
-
-# answer generation (after indexing)
-curl -X POST http://127.0.0.1:8000/api/query/answer \
-  -H "Content-Type: application/json" \
-  -d '{"query":"What does the document say about alpha?","top_k":5,"mode":"dense","include_context_in_prompt":true}'
-
-# prompt debug without calling the LLM
-curl -X POST http://127.0.0.1:8000/api/query/prompt-debug \
-  -H "Content-Type: application/json" \
-  -d '{"query":"What does the document say about alpha?","top_k":5,"mode":"dense","include_context_in_prompt":false}'
 ```
-
-## Run the frontend locally
-
-- start the API with `make app-run`
-- open `http://127.0.0.1:8000/`
-- use the page to:
-  - upload a document
-  - enter a query
-  - toggle whether retrieved context is included in the final prompt
-  - inspect retrieved chunks
-  - inspect the built prompt through the debug button
-  - generate the final answer and review cited sources
-
-## End-to-end localhost test flow
-
-1. Copy `.env.example` to `.env` and set `OPENAI_API_KEY`.
-2. Start Qdrant with `make qdrant-up`.
-3. Run the API with `make app-run`.
-4. Open `http://127.0.0.1:8000/`.
-5. Upload a `.txt`, `.md`, or `.pdf` document.
-6. Wait a moment for background indexing to finish.
-7. Run a dense query through the page or `POST /api/query/answer`.
-8. Use the prompt-debug button or `POST /api/query/prompt-debug` to inspect the exact prompt.
-9. Confirm the answer includes grounded citations and that `sources` match retrieved chunks.
-10. Run tests with `make test`.
-
-## Pipeline walkthrough
-
-- A short file-by-file explanation of the whole pipeline lives in [docs/PIPELINE_WALKTHROUGH.md](/home/patrik/Desktop/skola/BP/prototypes/issue-15-embedding-generation/docs/PIPELINE_WALKTHROUGH.md).
 
 ## Future opportunities / roadmap
 

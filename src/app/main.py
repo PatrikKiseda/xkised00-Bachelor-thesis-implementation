@@ -10,7 +10,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Callable
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
 
 from app.api.documents import router as documents_router
 from app.api.jobs import router as jobs_router
@@ -18,15 +17,12 @@ from app.api.query import router as query_router
 from app.core.settings import Settings, get_settings
 from app.embeddings.adapter import EmbeddingClient
 from app.embeddings.providers import build_embedding_client
-from app.generation.adapter import GenerationClient
-from app.generation.providers import build_generation_client
 from app.storage.qdrant_store import QdrantStore
 from app.storage.sqlite_schema import initialize_sqlite_schema
 
 # StoreFactory: typed factory contract used for dependency injection in tests/startup.
 StoreFactory = Callable[[Settings], QdrantStore]
 EmbeddingClientFactory = Callable[[Settings], EmbeddingClient]
-GenerationClientFactory = Callable[[Settings], GenerationClient]
 
 
 # create_app: builds the FastAPI app and wires Qdrant startup + health reporting.
@@ -34,12 +30,10 @@ def create_app(
     settings: Settings | None = None,
     store_factory: StoreFactory | None = None,
     embedding_client_factory: EmbeddingClientFactory | None = None,
-    generation_client_factory: GenerationClientFactory | None = None,
 ) -> FastAPI:
     resolved_settings = settings or get_settings()
     resolved_store_factory = store_factory or QdrantStore.from_settings
     resolved_embedding_client_factory = embedding_client_factory or build_embedding_client
-    resolved_generation_client_factory = generation_client_factory or build_generation_client
 
     # lifespan: initializes Qdrant store at startup and stores initial reachability state. see https://fastapi.tiangolo.com/advanced/events/#lifespan.
     @asynccontextmanager
@@ -49,7 +43,6 @@ def create_app(
         storage_dir.mkdir(parents=True, exist_ok=True)
         qdrant_store = resolved_store_factory(resolved_settings)
         embedding_client = resolved_embedding_client_factory(resolved_settings)
-        generation_client = resolved_generation_client_factory(resolved_settings)
         startup_status = qdrant_store.check_connection()
 
         app.state.settings = resolved_settings
@@ -57,7 +50,6 @@ def create_app(
         app.state.storage_dir = str(storage_dir)
         app.state.qdrant_store = qdrant_store
         app.state.embedding_client = embedding_client
-        app.state.generation_client = generation_client
         app.state.qdrant_reachable_on_startup = startup_status.reachable
         app.state.qdrant_startup_error = startup_status.error
         yield
@@ -67,11 +59,6 @@ def create_app(
     app.include_router(jobs_router)
     app.include_router(query_router)
 
-    # localhost_ui endpoint decorator: serve a simple static HTML page for localhost to the app.
-    @app.get("/", response_class=HTMLResponse)
-    def localhost_ui() -> HTMLResponse:
-        ui_path = Path(__file__).resolve().parent / "ui" / "index.html"
-        return HTMLResponse(content=ui_path.read_text(encoding="utf-8"))
 
     # health endpoint decorator: exposing runtime health snapshot for app + Qdrant.
     @app.get("/api/health")
