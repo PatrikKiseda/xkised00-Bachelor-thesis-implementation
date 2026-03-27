@@ -248,12 +248,41 @@ def search_chunks_lexical(
     query_text: str,
     limit: int,
 ) -> list[LexicalSearchRow]:
-    normalized_query = normalize_fts5_query(query_text)
-    if normalized_query is None:
+    terms = _extract_fts5_terms(query_text)
+    if not terms:
         return []
 
+    strict_rows = _run_lexical_query(
+        db_path=db_path,
+        match_query=_join_fts5_terms(terms, operator="AND"),
+        limit=limit,
+    )
+    if strict_rows or len(terms) == 1:
+        return [_row_to_lexical_search_row(row) for row in strict_rows]
+
+    fallback_rows = _run_lexical_query(
+        db_path=db_path,
+        match_query=_join_fts5_terms(terms, operator="OR"),
+        limit=limit,
+    )
+    return [_row_to_lexical_search_row(row) for row in fallback_rows]
+
+
+def normalize_fts5_query(query_text: str) -> str | None:
+    terms = _extract_fts5_terms(query_text)
+    if not terms:
+        return None
+    return _join_fts5_terms(terms, operator="AND")
+
+# _run_lexical_query: helper to execute a raw SQL query against the chunks_fts virtual table for lexical search. Returns the raw rows for further processing.
+def _run_lexical_query(
+    *,
+    db_path: str,
+    match_query: str,
+    limit: int,
+) -> list[tuple[object, ...]]:
     with sqlite3.connect(db_path) as connection:
-        rows = connection.execute(
+        return connection.execute(
             """
             SELECT chunks.id, chunks.document_id, documents.filename, chunks.chunk_index,
                    chunks.content, bm25(chunks_fts) AS raw_score
@@ -264,17 +293,16 @@ def search_chunks_lexical(
             ORDER BY raw_score ASC, chunks.id ASC
             LIMIT ?
             """,
-            (normalized_query, limit),
+            (match_query, limit),
         ).fetchall()
 
-    return [_row_to_lexical_search_row(row) for row in rows]
+# _extract_fts5_terms: helper to extract searchable terms from a raw query string using a regex.
+def _extract_fts5_terms(query_text: str) -> list[str]:
+    return re.findall(r"\w+", query_text, flags=re.UNICODE)
 
-
-def normalize_fts5_query(query_text: str) -> str | None:
-    terms = re.findall(r"\w+", query_text, flags=re.UNICODE)
-    if not terms:
-        return None
-    return " AND ".join(f'"{term}"' for term in terms)
+# _join_fts5_terms: helper to join a list of terms into a valid FTS5 MATCH query string with the specified operator (AND/OR).
+def _join_fts5_terms(terms: list[str], *, operator: str) -> str:
+    return f" {operator} ".join(f'"{term}"' for term in terms)
 
 # separate lookups and upserts for better clarity and separation of functions.
 
@@ -288,7 +316,6 @@ def _row_to_chunk_lookup_record(row:  tuple[object, ...]) -> ChunkLookupRecord:
         content=str(row[3]),
     ) 
 
-# _row_to_lexical_search_row: helper to convert a SQL row tuple into a LexicalSearchRow dataclass instance.
 def _row_to_lexical_search_row(row: tuple[object, ...]) -> LexicalSearchRow:
     return LexicalSearchRow(
         chunk_id=str(row[0]),

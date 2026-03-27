@@ -115,6 +115,28 @@ class TestLexicalRetrieval(unittest.TestCase):
             rows = search_chunks_lexical(db_path, query_text="!!!", limit=5)
 
             self.assertEqual(rows, [])
+    
+    # test_search_chunks_lexical_falls_back_to_or_when_strict_and_has_no_hits: if strict AND query returns no hits, it should automatically fall back to a more lenient OR query to try to find relevant results rather than returning empty.
+    def test_search_chunks_lexical_falls_back_to_or_when_strict_and_has_no_hits(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(initialize_sqlite_schema(str(Path(temp_dir) / "app.db")))
+            self._insert_document(db_path, document_id="doc-1", filename="notes.txt")
+
+            replace_document_chunks(
+                db_path,
+                document_id="doc-1",
+                chunks=[
+                    ChunkUpsert(
+                        id="doc-1:000000",
+                        chunk_index=0,
+                        content="alpha beta gamma",
+                    )
+                ],
+            )
+
+            rows = search_chunks_lexical(db_path, query_text="What does alpha mean?", limit=5)
+
+            self.assertEqual([row.chunk_id for row in rows], ["doc-1:000000"])
 
     # Helper to insert a document record into the database for testing. This is needed to set up the necessary metadata for chunks to be associated with a document.
     def _insert_document(self, db_path: str, *, document_id: str, filename: str) -> None:

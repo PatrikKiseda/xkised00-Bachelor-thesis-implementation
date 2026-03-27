@@ -192,6 +192,108 @@ class TestAnswerApi(unittest.TestCase):
             self.assertGreater(len(payload["sources"]), 0)
             self.assertEqual(len(generation_client.calls), 1)
             self.assertEqual(generation_client.calls[0][0], "What does the note mention?")
+    
+    def test_answer_endpoint_supports_lexical_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            generation_client = _RecordingGenerationClient("Lexical answer [S1]")
+            app = create_app(
+                settings=_build_settings(
+                    sqlite_path=str(Path(temp_dir) / "app.db"),
+                    storage_dir=str(Path(temp_dir) / "uploads"),
+                ),
+                store_factory=lambda _: _InMemoryDenseStore(),  # type: ignore[arg-type]
+                generation_client_factory=lambda _: generation_client,
+            )
+
+            with TestClient(app) as client:
+                upload_response = client.post(
+                    "/api/documents/upload",
+                    files={"file": ("notes.txt", (b"alpha beta gamma delta " * 30), "text/plain")},
+                )
+                answer_response = client.post(
+                    "/api/query/answer",
+                    json={"query": "alpha beta", "top_k": 3, "mode": "lexical"},
+                )
+
+            self.assertEqual(upload_response.status_code, 201)
+            self.assertEqual(answer_response.status_code, 200)
+            payload = answer_response.json()
+            self.assertEqual(payload["mode"], "lexical")
+            self.assertEqual(payload["answer"], "Lexical answer [S1]")
+            self.assertGreater(len(payload["sources"]), 0)
+            self.assertEqual(payload["sources"][0]["filename"], "notes.txt")
+            self.assertGreaterEqual(payload["sources"][0]["score"], 0.0)
+            self.assertEqual(len(generation_client.calls), 1)
+            self.assertIn("alpha beta", generation_client.calls[0][0])
+
+    def test_prompt_debug_supports_lexical_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            generation_client = _RecordingGenerationClient()
+            app = create_app(
+                settings=_build_settings(
+                    sqlite_path=str(Path(temp_dir) / "app.db"),
+                    storage_dir=str(Path(temp_dir) / "uploads"),
+                ),
+                store_factory=lambda _: _InMemoryDenseStore(),  # type: ignore[arg-type]
+                generation_client_factory=lambda _: generation_client,
+            )
+
+            with TestClient(app) as client:
+                upload_response = client.post(
+                    "/api/documents/upload",
+                    files={"file": ("notes.txt", (b"alpha beta gamma delta " * 30), "text/plain")},
+                )
+                debug_response = client.post(
+                    "/api/query/prompt-debug",
+                    json={
+                        "query": "alpha beta",
+                        "top_k": 3,
+                        "mode": "lexical",
+                        "include_context_in_prompt": True,
+                    },
+                )
+
+            self.assertEqual(upload_response.status_code, 201)
+            self.assertEqual(debug_response.status_code, 200)
+            payload = debug_response.json()
+            self.assertEqual(payload["mode"], "lexical")
+            self.assertGreater(len(payload["sources"]), 0)
+            self.assertIn("[S1]", payload["prompt"])
+            self.assertEqual(len(generation_client.calls), 0)
+
+    def test_prompt_debug_lexical_mode_keeps_context_for_natural_language_query(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            generation_client = _RecordingGenerationClient()
+            app = create_app(
+                settings=_build_settings(
+                    sqlite_path=str(Path(temp_dir) / "app.db"),
+                    storage_dir=str(Path(temp_dir) / "uploads"),
+                ),
+                store_factory=lambda _: _InMemoryDenseStore(),  # type: ignore[arg-type]
+                generation_client_factory=lambda _: generation_client,
+            )
+
+            with TestClient(app) as client:
+                upload_response = client.post(
+                    "/api/documents/upload",
+                    files={"file": ("notes.txt", (b"alpha beta gamma delta " * 30), "text/plain")},
+                )
+                debug_response = client.post(
+                    "/api/query/prompt-debug",
+                    json={
+                        "query": "What does alpha mean?",
+                        "top_k": 3,
+                        "mode": "lexical",
+                        "include_context_in_prompt": True,
+                    },
+                )
+
+            self.assertEqual(upload_response.status_code, 201)
+            self.assertEqual(debug_response.status_code, 200)
+            payload = debug_response.json()
+            self.assertGreater(len(payload["sources"]), 0)
+            self.assertIn("Retrieved context:", payload["prompt"])
+            self.assertIn("[S1]", payload["prompt"])
 
     def test_answer_endpoint_returns_not_implemented_for_unsupported_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -253,5 +355,7 @@ class TestAnswerApi(unittest.TestCase):
                 response = client.get("/")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("Localhost RAG UI", response.text)
+            self.assertIn("Localhost RAG app UI", response.text)
             self.assertIn("/api/query/answer", response.text)
+            self.assertIn("Retrieval mode", response.text)
+            self.assertIn("value=\"lexical\"", response.text)

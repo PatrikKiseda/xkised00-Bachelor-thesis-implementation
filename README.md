@@ -217,7 +217,8 @@ Extraction failures for supported file types (for example malformed PDF) are now
   - `top_k` (optional, `1..50`, default `5`)
 - implementation:
   - lexical search runs through SQLite FTS5 using the existing `chunks_fts` table
-  - free-text queries are normalized into quoted terms joined with `AND`
+  - free-text queries first try quoted terms joined with `AND`
+  - if strict `AND` matching returns no hits and the query has multiple terms, lexical retrieval falls back to an `OR` query to keep localhost usage practical for natural-language questions
   - retrieval ordering uses `bm25(chunks_fts)` with deterministic tie-breaking on `chunks.id`
   - returned API scores are normalized into higher-is-better values derived from `bm25`
 - response body:
@@ -366,10 +367,6 @@ curl -X POST http://127.0.0.1:8000/api/query/prompt-debug \
 8. Use the prompt-debug button or `POST /api/query/prompt-debug` to inspect the exact prompt.
 9. Confirm the answer includes grounded citations and that `sources` match retrieved chunks.
 10. Run tests with `make test`.
-
-## Pipeline walkthrough
-
-- A short file-by-file explanation of the whole pipeline lives in [docs/PIPELINE_WALKTHROUGH.md](/home/patrik/Desktop/skola/BP/prototypes/issue-13-lexical-search/docs/PIPELINE_WALKTHROUGH.md).
 
 ## Future opportunities / roadmap
 
