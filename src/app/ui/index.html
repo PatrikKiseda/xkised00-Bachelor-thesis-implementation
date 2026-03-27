@@ -28,13 +28,17 @@
     }
 
     textarea,
-    input[type="text"] {
+    input[type="text"],
+    select {
       box-sizing: border-box;
       font: inherit;
-      min-height: 7rem;
       padding: 0.6rem;
-      resize: vertical;
       width: 100%;
+    }
+
+    textarea {
+      min-height: 7rem;
+      resize: vertical;
     }
 
     textarea[readonly] {
@@ -105,6 +109,14 @@
       <textarea id="queryInput" name="query" placeholder="Ask a question about your indexed documents." required></textarea>
     </div>
 
+    <div>
+      <label for="modeSelect">Retrieval mode</label>
+      <select id="modeSelect" name="mode">
+        <option value="dense" selected>Dense</option>
+        <option value="lexical">Lexical</option>
+      </select>
+    </div>
+
     <!-- Checkbox: if retrieved chunks should be injected into the final LiteLLM prompt. -->
     <div class="checkbox-row">
       <input id="includeContext" name="includeContext" type="checkbox" checked>
@@ -153,6 +165,7 @@
     // Cache of all DOM elements once so the event handler stays small.
     const queryForm = document.getElementById("queryForm");
     const queryInput = document.getElementById("queryInput");
+    const modeSelect = document.getElementById("modeSelect");
     const includeContextCheckbox = document.getElementById("includeContext");
     const showPromptDebugCheckbox = document.getElementById("showPromptDebug");
     const submitButton = document.getElementById("submitButton");
@@ -163,8 +176,6 @@
     const promptOutput = document.getElementById("promptOutput");
     const chunksOutput = document.getElementById("chunksOutput");
 
-    // Fixed defaults.
-    const DEFAULT_QUERY_MODE = "dense";
     const DEFAULT_TOP_K = 5;
 
     // Toggle the loading state in one place so the button/status always stay in sync.
@@ -265,6 +276,7 @@
       event.preventDefault();
 
       const query = queryInput.value.trim();
+      const mode = modeSelect.value;
       const includeContextInPrompt = includeContextCheckbox.checked;
       const showPromptDebug = showPromptDebugCheckbox.checked;
 
@@ -276,7 +288,7 @@
 
       const payload = {
         query,
-        mode: DEFAULT_QUERY_MODE,
+        mode,
         top_k: DEFAULT_TOP_K,
         include_context_in_prompt: includeContextInPrompt,
       };
@@ -285,7 +297,7 @@
       clearDebugOutput();
       answerOutput.value = "";
       sourcesOutput.textContent = "No sources yet.";
-      setLoadingState(true, "Running RAG query...");
+      setLoadingState(true, `Running ${mode} RAG query...`);
 
       try {
         const answerResponse = await fetch("/api/query/answer", {
@@ -305,7 +317,7 @@
         renderSources(answerData.sources || []);
 
         if (showPromptDebug) {
-          statusMessage.textContent = "Answer loaded. Fetching prompt debug...";
+          statusMessage.textContent = `Answer loaded. Fetching ${mode} prompt debug...`;
 
           const debugResponse = await fetch("/api/query/prompt-debug", {
             method: "POST",
@@ -324,7 +336,10 @@
           renderDebugChunks(debugData.sources || []);
         }
 
-        setLoadingState(false, showPromptDebug ? "Answer and prompt debug loaded." : "Answer loaded.");
+        setLoadingState(
+          false,
+          showPromptDebug ? `Answer and prompt debug loaded for ${mode} mode.` : `Answer loaded for ${mode} mode.`,
+        );
       } catch (error) {
         setLoadingState(false, error instanceof Error ? error.message : "Something went wrong.");
       }
