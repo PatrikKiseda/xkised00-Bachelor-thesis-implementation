@@ -356,6 +356,7 @@ class TestAnswerApi(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("Localhost RAG app UI", response.text)
+
             self.assertIn("/api/query/answer", response.text)
             self.assertIn("Retrieval mode", response.text)
             self.assertIn("value=\"lexical\"", response.text)
