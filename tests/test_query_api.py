@@ -1,7 +1,7 @@
 """
 Author: Patrik Kiseda
 File: tests/test_query_api.py
-Description: API tests for dense query endpoint and SQLite content hydration.
+Description: API tests for dense and lexical query endpoints and SQLite content hydration.
 """
 
 from __future__ import annotations
@@ -151,3 +151,56 @@ class TestDenseQueryApi(unittest.TestCase):
 
             self.assertEqual(empty_query.status_code, 422)
             self.assertEqual(invalid_top_k.status_code, 422)
+
+    # test_query_lexical_returns_ranked_hydrated_hits: upload+index then lexical query returns refs, score, and hydrated content.
+    def test_query_lexical_returns_ranked_hydrated_hits(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "app.db")
+            storage_dir = str(Path(temp_dir) / "uploads")
+            app = create_app(
+                settings=_build_settings(sqlite_path=db_path, storage_dir=storage_dir),
+                store_factory=lambda _: _InMemoryDenseStore(),  # type: ignore[arg-type]
+            )
+
+            with TestClient(app) as client:
+                upload_response = client.post(
+                    "/api/documents/upload",
+                    files={"file": ("notes.txt", (b"alpha beta gamma delta " * 40), "text/plain")},
+                )
+                query_response = client.post(
+                    "/api/query/lexical",
+                    json={"query": "alpha beta", "top_k": 3},
+                )
+
+            self.assertEqual(upload_response.status_code, 201)
+            self.assertEqual(query_response.status_code, 200)
+            payload = query_response.json()
+            self.assertEqual(payload["mode"], "lexical")
+            self.assertEqual(payload["query"], "alpha beta")
+            self.assertGreater(len(payload["hits"]), 0)
+
+            first_hit = payload["hits"][0]
+            self.assertIn("chunk_id", first_hit)
+            self.assertIn("document_id", first_hit)
+            self.assertIn("chunk_index", first_hit)
+            self.assertIn("score", first_hit)
+            self.assertIn("content", first_hit)
+            self.assertTrue(first_hit["content"])
+            self.assertGreaterEqual(first_hit["score"], 0.0)
+
+    def test_query_lexical_returns_empty_hits_when_index_is_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "app.db")
+            storage_dir = str(Path(temp_dir) / "uploads")
+            app = create_app(
+                settings=_build_settings(sqlite_path=db_path, storage_dir=storage_dir),
+                store_factory=lambda _: _InMemoryDenseStore(),  # type: ignore[arg-type]
+            )
+
+            with TestClient(app) as client:
+                response = client.post("/api/query/lexical", json={"query": "anything"})
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual(payload["mode"], "lexical")
+            self.assertEqual(payload["hits"], [])

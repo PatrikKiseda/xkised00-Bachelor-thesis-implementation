@@ -2,7 +2,7 @@
 
 This repository contains the source code for the thesis implementation.
 
-Current goal: making the system work reliably on `localhost` first (ingestion -> indexing -> retrieval -> answer generation), with a simple local UI and a retrieval contract that stays ready for later lexical and hybrid retrieval work.
+Current goal: making the system work reliably on `localhost` first (ingestion -> indexing -> retrieval -> answer generation), with a simple local UI and a retrieval contract that stays ready for later hybrid retrieval work.
 
 ## Structure of the repository
 
@@ -61,7 +61,7 @@ The `src/app` directory is split into modules with different responsibilities th
   - OpenAI API-first client + deterministic runtime mode for tests/local CI
 
 - `retrieval/`
-  - dense retrieval, hybrid retrieval, ranking/fusion logic (e.g., RRF/MMR)
+  - dense retrieval, lexical retrieval, hybrid retrieval, ranking/fusion logic (e.g., RRF/MMR)
 
 - `generation/`
   - prompt construction and LLM provider calls (LiteLLM wrapper)
@@ -90,13 +90,13 @@ The app initializes the local SQLite metadata schema during startup (`create_app
   - `documents`
   - `chunks`
   - `jobs`
-  - `chunks_fts` (FTS5 virtual table for lexical search placeholders)
+  - `chunks_fts` (FTS5 virtual table for lexical search)
 - documents metadata fields now include:
   - `source_type` (`txt`/`md`/`pdf`)
   - `filename`
   - `size_bytes`
 
-This creates the local metadata/job-tracking foundation for upcoming ingestion and reindex flows.
+This creates the local metadata/job-tracking foundation for ingestion, dense retrieval hydration, and SQLite FTS5 lexical lookup.
 
 ## API endpoints
 
@@ -123,6 +123,11 @@ This creates the local metadata/job-tracking foundation for upcoming ingestion a
   - runs dense retrieval against Qdrant
   - request body: `query`, optional `top_k` (default `5`)
   - response returns chunk references + similarity score + hydrated chunk content
+
+- `POST /api/query/lexical`
+  - runs lexical retrieval against SQLite FTS5
+  - request body: `query`, optional `top_k` (default `5`)
+  - response returns chunk references + lexical score + hydrated chunk content
 
 - `POST /api/query/answer`
   - runs retrieval first, then generates a grounded answer from the retrieved chunks
@@ -177,6 +182,9 @@ Extraction failures for supported file types (for example malformed PDF) are now
 - chunk records are persisted into:
   - `chunks` table (metadata/content)
   - `chunks_fts` table (FTS5 lexical index content mirror)
+- lexical indexing policy:
+  - no separate lexical indexing job is required because chunk content is mirrored into `chunks_fts` during chunk persistence
+  - lexical retrieval queries `chunks_fts` and hydrates chunk metadata through SQLite joins
 - embedding generation is executed per chunk via adapter interface:
   - provider/model come from `EMBEDDING_PROVIDER` and `EMBEDDING_MODEL`
   - if `EMBEDDING_API_ENABLED=true`, provider registry uses API client (OpenAI in this prototype)
@@ -201,11 +209,28 @@ Extraction failures for supported file types (for example malformed PDF) are now
   - `hits`: list of `{chunk_id, document_id, chunk_index, score, content}`
 - if the dense index is empty, returns `200` with `hits: []`
 
+## Lexical query behavior
+
+- endpoint: `POST /api/query/lexical`
+- request body:
+  - `query` (required, non-empty)
+  - `top_k` (optional, `1..50`, default `5`)
+- implementation:
+  - lexical search runs through SQLite FTS5 using the existing `chunks_fts` table
+  - free-text queries first try quoted terms joined with `AND`
+  - if strict `AND` matching returns no hits and the query has multiple terms, lexical retrieval falls back to an `OR` query to keep localhost usage practical for natural-language questions
+  - retrieval ordering uses `bm25(chunks_fts)` with deterministic tie-breaking on `chunks.id`
+  - returned API scores are normalized into higher-is-better values derived from `bm25`
+- response body:
+  - `mode`, `query`
+  - `hits`: list of `{chunk_id, document_id, chunk_index, score, content}`
+- if the lexical index is empty, or the normalized query has no searchable tokens, returns `200` with `hits: []`
+
 ## Answer generation behavior
 
 - retrieval and generation are separated:
-  - dense retrieval is resolved through a shared retrieval contract
-  - answer generation only receives hydrated retrieved chunks and does not call Qdrant directly
+  - dense retrieval and lexical retrieval are resolved through a shared retrieval contract
+  - answer generation only receives hydrated retrieved chunks and does not call Qdrant or SQLite FTS5 directly
 - endpoint: `POST /api/query/answer`
 - request body:
   - `query` (required, non-empty)
@@ -225,7 +250,8 @@ Extraction failures for supported file types (for example malformed PDF) are now
   - if `include_context_in_prompt=false`, the final prompt is just the raw user query
 - mode support today:
   - `dense` is implemented
-  - `lexical` and `hybrid` are reserved in the request contract and currently return `501 Not Implemented`
+  - `lexical` is implemented
+  - `hybrid` is reserved in the request contract and currently returns `501 Not Implemented`
 
 Prompt modes:
 
@@ -295,10 +321,20 @@ curl -X POST http://127.0.0.1:8000/api/query/dense \
   -H "Content-Type: application/json" \
   -d '{"query":"alpha beta","top_k":5}'
 
+# lexical query (after indexing)
+curl -X POST http://127.0.0.1:8000/api/query/lexical \
+  -H "Content-Type: application/json" \
+  -d '{"query":"alpha beta","top_k":5}'
+
 # answer generation (after indexing)
 curl -X POST http://127.0.0.1:8000/api/query/answer \
   -H "Content-Type: application/json" \
   -d '{"query":"What does the document say about alpha?","top_k":5,"mode":"dense","include_context_in_prompt":true}'
+
+# lexical answer generation (after indexing)
+curl -X POST http://127.0.0.1:8000/api/query/answer \
+  -H "Content-Type: application/json" \
+  -d '{"query":"alpha beta","top_k":5,"mode":"lexical","include_context_in_prompt":true}'
 
 # prompt debug without calling the LLM
 curl -X POST http://127.0.0.1:8000/api/query/prompt-debug \
@@ -313,6 +349,7 @@ curl -X POST http://127.0.0.1:8000/api/query/prompt-debug \
 - use the page to:
   - upload a document
   - enter a query
+  - choose `dense` or `lexical` retrieval mode
   - toggle whether retrieved context is included in the final prompt
   - inspect retrieved chunks
   - inspect the built prompt through the debug button
@@ -326,14 +363,10 @@ curl -X POST http://127.0.0.1:8000/api/query/prompt-debug \
 4. Open `http://127.0.0.1:8000/`.
 5. Upload a `.txt`, `.md`, or `.pdf` document.
 6. Wait a moment for background indexing to finish.
-7. Run a dense query through the page or `POST /api/query/answer`.
+7. Run a dense query or lexical query through the page, `POST /api/query/dense`, `POST /api/query/lexical`, or `POST /api/query/answer`.
 8. Use the prompt-debug button or `POST /api/query/prompt-debug` to inspect the exact prompt.
 9. Confirm the answer includes grounded citations and that `sources` match retrieved chunks.
 10. Run tests with `make test`.
-
-## Pipeline walkthrough
-
-- A short file-by-file explanation of the whole pipeline lives in [docs/PIPELINE_WALKTHROUGH.md](/home/patrik/Desktop/skola/BP/prototypes/issue-15-embedding-generation/docs/PIPELINE_WALKTHROUGH.md).
 
 ## Future opportunities / roadmap
 
@@ -345,8 +378,11 @@ curl -X POST http://127.0.0.1:8000/api/query/prompt-debug \
   - better invalid input handling
   - add richer job payload and progress metadata for observability
 - retrieval and ranking:
-  - dense-only vs hybrid retrieval benchmarking
+  - dense-only vs lexical-only vs hybrid retrieval benchmarking
   - large enough dataset probe for stronger statistics
 - embedding adapter and provider behavior:
   - additional tests for different providers 
   - compare deterministic vectors vs API vectors 
+- lexical retrieval follow-ups:
+  - add punctuation-heavy and low-signal lexical query regression cases to document current FTS5 normalization behavior
+  - compare alternative tokenization and lexical score normalization choices before hybrid fusion evaluation

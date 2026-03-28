@@ -18,42 +18,26 @@ router = APIRouter(prefix="/api/query", tags=["query"])
 QueryMode = Literal["dense", "lexical", "hybrid"]
 
 
-# DenseQueryRequest: request schema for dense retrieval mode, this is minimal for now, will be extended later (filters, hybrid mode parameters, etc.).
-class DenseQueryRequest(BaseModel):
+# RetrievalQueryRequest: request schema for direct retrieval endpoints.
+class RetrievalQueryRequest(BaseModel):
     query: str = Field(..., min_length=1)
     top_k: int = Field(default=5, ge=1, le=50)
 
-# AnswerQueryRequest: request schema for answer generation endpoint, extending DenseQueryRequest with additional parameters for answer generation.
-class AnswerQueryRequest(DenseQueryRequest):
+# AnswerQueryRequest: request schema for answer generation endpoint, extending RetrievalQueryRequest with additional parameters for answer generation.
+class AnswerQueryRequest(RetrievalQueryRequest):
     mode: QueryMode = "dense"
     include_context_in_prompt: bool = True
 
 
 # query_dense: run embedding + dense vector search and return hydrated chunk hits.
 @router.post("/dense")
-def query_dense(request: Request, payload: DenseQueryRequest) -> dict[str, object]:
-    retriever = build_retriever(
-        mode="dense",
-        db_path=request.app.state.sqlite_db_path,
-        embedding_client=request.app.state.embedding_client,
-        qdrant_store=request.app.state.qdrant_store,
-        qdrant_collection=request.app.state.settings.qdrant_collection,
-        qdrant_vector_size=request.app.state.settings.qdrant_vector_size,
-    )
-    hits = retriever.retrieve(query=payload.query, top_k=payload.top_k)
-    if not hits:
-        return {
-            "mode": "dense",
-            "query": payload.query,
-            "hits": [],
-        }
+def query_dense(request: Request, payload: RetrievalQueryRequest) -> dict[str, object]:
+    return _run_retrieval_query(request=request, mode="dense", query=payload.query, top_k=payload.top_k)
 
-    # Step 4: Return the list of qdrant queries as the response. Each response from Qdrant is paired with content from SQLite.
-    return {
-        "mode": "dense",
-        "query": payload.query,
-        "hits": [_serialize_dense_hit(hit) for hit in hits],
-    }
+# query_lexical: run lexical search using SQLite FTS5 and return the hits in the same format as dense for consistency.
+@router.post("/lexical")
+def query_lexical(request: Request, payload: RetrievalQueryRequest) -> dict[str, object]:
+    return _run_retrieval_query(request=request, mode="lexical", query=payload.query, top_k=payload.top_k)
 
 # query_answer: run retrieval (dense, lexical, or hybrid) and then generate an answer using the retrieved sources.
 @router.post("/answer")
@@ -114,8 +98,33 @@ def query_prompt_debug(request: Request, payload: AnswerQueryRequest) -> dict[st
         "sources": [_serialize_source(source) for source in sources],
     }
 
-# Serialization helpers to convert RetrievedChunk objects into dicts for API responses. 
-def _serialize_dense_hit(hit: RetrievedChunk) -> dict[str, object]:
+# Internal helper to run retrieval queries for both dense and lexical endpoints. Returns the found chunks in a consistent format for the API response. 
+def _run_retrieval_query(
+    *,
+    request: Request,
+    mode: QueryMode,
+    query: str,
+    top_k: int,
+) -> dict[str, object]:
+    retriever = build_retriever(
+        mode=mode,
+        db_path=request.app.state.sqlite_db_path,
+        embedding_client=request.app.state.embedding_client,
+        qdrant_store=request.app.state.qdrant_store,
+        qdrant_collection=request.app.state.settings.qdrant_collection,
+        qdrant_vector_size=request.app.state.settings.qdrant_vector_size,
+    )
+    hits = retriever.retrieve(query=query, top_k=top_k)
+
+    return {
+        "mode": mode,
+        "query": query,
+        "hits": [_serialize_hit(hit) for hit in hits],
+    }
+
+
+# Serialization helpers to convert RetrievedChunk objects into dicts for API responses.
+def _serialize_hit(hit: RetrievedChunk) -> dict[str, object]:
     return {
         "chunk_id": hit.chunk_id,
         "document_id": hit.document_id,

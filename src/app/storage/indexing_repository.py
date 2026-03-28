@@ -6,6 +6,7 @@ Description: SQLite helpers for indexing jobs and chunk records.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 
@@ -40,6 +41,16 @@ class ChunkLookupRecord:
     filename: str | None
     chunk_index: int
     content: str
+
+# LexicalSearchRow: row returned from a lexical search on the ```chunks_fts``` virtual table, including the raw BM25 score for ranking.
+@dataclass(slots=True)
+class LexicalSearchRow:
+    chunk_id: str
+    document_id: str
+    filename: str | None
+    chunk_index: int
+    content: str
+    raw_score: float
 
 # list_jobs: retrieves a list of job records from the ```jobs``` table, optional filtering by document_id and limited in count.
 def create_job(
@@ -229,6 +240,70 @@ def get_chunks_by_ids(
         for row in rows
     }
 
+# search_chunks_lexical: executes a lexical search on the ```chunks_fts``` virtual table using the provided query.
+# Returns a list of LexicalSearchRow with chunk and document info along with the raw BM25 score.
+def search_chunks_lexical(
+    db_path: str,
+    *,
+    query_text: str,
+    limit: int,
+) -> list[LexicalSearchRow]:
+    terms = _extract_fts5_terms(query_text)
+    if not terms:
+        return []
+
+    strict_rows = _run_lexical_query(
+        db_path=db_path,
+        match_query=_join_fts5_terms(terms, operator="AND"),
+        limit=limit,
+    )
+    if strict_rows or len(terms) == 1:
+        return [_row_to_lexical_search_row(row) for row in strict_rows]
+
+    fallback_rows = _run_lexical_query(
+        db_path=db_path,
+        match_query=_join_fts5_terms(terms, operator="OR"),
+        limit=limit,
+    )
+    return [_row_to_lexical_search_row(row) for row in fallback_rows]
+
+
+def normalize_fts5_query(query_text: str) -> str | None:
+    terms = _extract_fts5_terms(query_text)
+    if not terms:
+        return None
+    return _join_fts5_terms(terms, operator="AND")
+
+# _run_lexical_query: helper to execute a raw SQL query against the chunks_fts virtual table for lexical search. Returns the raw rows for further processing.
+def _run_lexical_query(
+    *,
+    db_path: str,
+    match_query: str,
+    limit: int,
+) -> list[tuple[object, ...]]:
+    with sqlite3.connect(db_path) as connection:
+        return connection.execute(
+            """
+            SELECT chunks.id, chunks.document_id, documents.filename, chunks.chunk_index,
+                   chunks.content, bm25(chunks_fts) AS raw_score
+            FROM chunks_fts
+            JOIN chunks ON chunks.id = chunks_fts.chunk_id
+            LEFT JOIN documents ON documents.id = chunks.document_id
+            WHERE chunks_fts MATCH ?
+            ORDER BY raw_score ASC, chunks.id ASC
+            LIMIT ?
+            """,
+            (match_query, limit),
+        ).fetchall()
+
+# _extract_fts5_terms: helper to extract searchable terms from a raw query string using a regex.
+def _extract_fts5_terms(query_text: str) -> list[str]:
+    return re.findall(r"\w+", query_text, flags=re.UNICODE)
+
+# _join_fts5_terms: helper to join a list of terms into a valid FTS5 MATCH query string with the specified operator (AND/OR).
+def _join_fts5_terms(terms: list[str], *, operator: str) -> str:
+    return f" {operator} ".join(f'"{term}"' for term in terms)
+
 # separate lookups and upserts for better clarity and separation of functions.
 
 # _row_to_chunk_lookup_record: helper to convert a SQL row tuple into a ChunkLookupRecord dataclass instance.
@@ -240,6 +315,16 @@ def _row_to_chunk_lookup_record(row:  tuple[object, ...]) -> ChunkLookupRecord:
         chunk_index=int(row[2]),
         content=str(row[3]),
     ) 
+
+def _row_to_lexical_search_row(row: tuple[object, ...]) -> LexicalSearchRow:
+    return LexicalSearchRow(
+        chunk_id=str(row[0]),
+        document_id=str(row[1]),
+        filename=str(row[2]) if row[2] is not None else None,
+        chunk_index=int(row[3]),
+        content=str(row[4]),
+        raw_score=float(row[5]),
+    )
 
 # _row_to_job_record: helper to convert a SQL row tuple into a JobRecord dataclass instance.
 def _row_to_job_record(row: tuple[object, ...]) -> JobRecord:
