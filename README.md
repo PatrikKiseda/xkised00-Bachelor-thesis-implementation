@@ -129,6 +129,11 @@ This creates the local metadata/job-tracking foundation for ingestion, dense ret
   - request body: `query`, optional `top_k` (default `5`)
   - response returns chunk references + lexical score + hydrated chunk content
 
+- `POST /api/query/hybrid`
+  - runs dense retrieval and lexical retrieval, then fuses both ranked lists with Reciprocal Rank Fusion (RRF)
+  - request body: `query`, optional `top_k` (default `5`)
+  - response returns chunk references + fused RRF score + hydrated chunk content
+
 - `POST /api/query/answer`
   - runs retrieval first, then generates a grounded answer from the retrieved chunks
   - request body: `query`, optional `top_k` (default `5`), optional `mode` (default `dense`), optional `include_context_in_prompt` (default `true`)
@@ -226,10 +231,28 @@ Extraction failures for supported file types (for example malformed PDF) are now
   - `hits`: list of `{chunk_id, document_id, chunk_index, score, content}`
 - if the lexical index is empty, or the normalized query has no searchable tokens, returns `200` with `hits: []`
 
+## Hybrid query behavior
+
+- endpoint: `POST /api/query/hybrid`
+- request body:
+  - `query` (required, non-empty)
+  - `top_k` (optional, `1..50`, default `5`)
+- implementation:
+  - hybrid retrieval runs dense search and lexical search independently
+  - each side contributes up to `top_k` candidates before fusion
+  - results are merged with Reciprocal Rank Fusion using rank positions only, not raw dense or lexical score magnitudes
+  - fused score is calculated as `sum(1 / (60 + rank))`
+  - duplicate chunks are merged by `chunk_id`
+  - final ordering is deterministic: fused score descending, then best rank ascending, then `chunk_id` ascending
+- response body:
+  - `mode`, `query`
+  - `hits`: list of `{chunk_id, document_id, chunk_index, score, content}`
+- if either dense or lexical returns no candidates, hybrid still returns the non-empty side after RRF normalization
+
 ## Answer generation behavior
 
 - retrieval and generation are separated:
-  - dense retrieval and lexical retrieval are resolved through a shared retrieval contract
+  - dense retrieval, lexical retrieval, and hybrid retrieval are resolved through a shared retrieval contract
   - answer generation only receives hydrated retrieved chunks and does not call Qdrant or SQLite FTS5 directly
 - endpoint: `POST /api/query/answer`
 - request body:
@@ -251,7 +274,7 @@ Extraction failures for supported file types (for example malformed PDF) are now
 - mode support today:
   - `dense` is implemented
   - `lexical` is implemented
-  - `hybrid` is reserved in the request contract and currently returns `501 Not Implemented`
+  - `hybrid` is implemented with dense + lexical RRF fusion
 
 Prompt modes:
 
@@ -326,6 +349,11 @@ curl -X POST http://127.0.0.1:8000/api/query/lexical \
   -H "Content-Type: application/json" \
   -d '{"query":"alpha beta","top_k":5}'
 
+# hybrid query (after indexing)
+curl -X POST http://127.0.0.1:8000/api/query/hybrid \
+  -H "Content-Type: application/json" \
+  -d '{"query":"alpha beta","top_k":5}'
+
 # answer generation (after indexing)
 curl -X POST http://127.0.0.1:8000/api/query/answer \
   -H "Content-Type: application/json" \
@@ -335,6 +363,11 @@ curl -X POST http://127.0.0.1:8000/api/query/answer \
 curl -X POST http://127.0.0.1:8000/api/query/answer \
   -H "Content-Type: application/json" \
   -d '{"query":"alpha beta","top_k":5,"mode":"lexical","include_context_in_prompt":true}'
+
+# hybrid answer generation (after indexing)
+curl -X POST http://127.0.0.1:8000/api/query/answer \
+  -H "Content-Type: application/json" \
+  -d '{"query":"alpha beta","top_k":5,"mode":"hybrid","include_context_in_prompt":true}'
 
 # prompt debug without calling the LLM
 curl -X POST http://127.0.0.1:8000/api/query/prompt-debug \
@@ -349,7 +382,7 @@ curl -X POST http://127.0.0.1:8000/api/query/prompt-debug \
 - use the page to:
   - upload a document
   - enter a query
-  - choose `dense` or `lexical` retrieval mode
+  - choose `dense`, `lexical`, or `hybrid` retrieval mode
   - toggle whether retrieved context is included in the final prompt
   - inspect retrieved chunks
   - inspect the built prompt through the debug button
@@ -363,10 +396,10 @@ curl -X POST http://127.0.0.1:8000/api/query/prompt-debug \
 4. Open `http://127.0.0.1:8000/`.
 5. Upload a `.txt`, `.md`, or `.pdf` document.
 6. Wait a moment for background indexing to finish.
-7. Run a dense query or lexical query through the page, `POST /api/query/dense`, `POST /api/query/lexical`, or `POST /api/query/answer`.
+7. Run a dense, lexical, or hybrid query through the page, `POST /api/query/dense`, `POST /api/query/lexical`, `POST /api/query/hybrid`, or `POST /api/query/answer`.
 8. Use the prompt-debug button or `POST /api/query/prompt-debug` to inspect the exact prompt.
 9. Confirm the answer includes grounded citations and that `sources` match retrieved chunks.
-10. Run tests with `make test`.
+10. Run tests with `make test` or `uv run python -m unittest discover -s tests -p "test_*.py"`.
 
 ## Future opportunities / roadmap
 
