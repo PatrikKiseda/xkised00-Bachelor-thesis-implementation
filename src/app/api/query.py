@@ -39,6 +39,11 @@ def query_dense(request: Request, payload: RetrievalQueryRequest) -> dict[str, o
 def query_lexical(request: Request, payload: RetrievalQueryRequest) -> dict[str, object]:
     return _run_retrieval_query(request=request, mode="lexical", query=payload.query, top_k=payload.top_k)
 
+# query_hybrid: run dense + lexical retrieval and mend the ranked results with RRF.
+@router.post("/hybrid")
+def query_hybrid(request: Request, payload: RetrievalQueryRequest) -> dict[str, object]:
+    return _run_retrieval_query(request=request, mode="hybrid", query=payload.query, top_k=payload.top_k)
+
 # query_answer: run retrieval (dense, lexical, or hybrid) and then generate an answer using the retrieved sources.
 @router.post("/answer")
 def query_answer(request: Request, payload: AnswerQueryRequest) -> dict[str, object]:
