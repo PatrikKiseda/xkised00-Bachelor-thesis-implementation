@@ -26,6 +26,8 @@ os.environ.setdefault("EMBEDDING_API_ENABLED", "false")
 
 from app.core.settings import Settings
 from app.main import create_app
+from app.storage.document_repository import insert_document
+from app.storage.indexing_repository import ChunkUpsert, replace_document_chunks
 from app.storage.qdrant_store import ChunkVector, DenseSearchHit, QdrantConnectionStatus
 
 
@@ -33,6 +35,7 @@ from app.storage.qdrant_store import ChunkVector, DenseSearchHit, QdrantConnecti
 class _InMemoryDenseStore:
     def __init__(self) -> None:
         self._vectors: list[ChunkVector] = []
+        self.dense_hits_override: list[DenseSearchHit] | None = None
 
     def check_connection(self) -> QdrantConnectionStatus:
         return QdrantConnectionStatus(reachable=True)
@@ -50,6 +53,9 @@ class _InMemoryDenseStore:
         query_vector: list[float],
         limit: int,
     ) -> list[DenseSearchHit]:
+        if self.dense_hits_override is not None:
+            return self.dense_hits_override[:limit]
+
         return [
             DenseSearchHit(
                 chunk_id=item.chunk_id,
@@ -204,3 +210,83 @@ class TestDenseQueryApi(unittest.TestCase):
             payload = response.json()
             self.assertEqual(payload["mode"], "lexical")
             self.assertEqual(payload["hits"], [])
+
+    # test_query_lexical_rejects_invalid_payload: request validation should guard empty queries and invalid top_k.
+    def test_query_hybrid_returns_fused_ranked_hits(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "app.db")
+            storage_dir = str(Path(temp_dir) / "uploads")
+            store = _InMemoryDenseStore()
+            app = create_app(
+                settings=_build_settings(sqlite_path=db_path, storage_dir=storage_dir),
+                store_factory=lambda _: store,  # type: ignore[arg-type]
+            )
+
+            with TestClient(app) as client:
+                self._seed_document_chunks(
+                    app.state.sqlite_db_path,
+                    document_id="doc-1",
+                    filename="notes.txt",
+                    chunks=[
+                        ChunkUpsert(
+                            id="doc-1:000000",
+                            chunk_index=0,
+                            content="alpha alpha beta",
+                        ),
+                        ChunkUpsert(
+                            id="doc-1:000001",
+                            chunk_index=1,
+                            content="alpha beta gamma",
+                        ),
+                    ],
+                )
+                store.dense_hits_override = [
+                    DenseSearchHit(
+                        chunk_id="doc-1:000001",
+                        document_id="doc-1",
+                        chunk_index=1,
+                        score=0.99,
+                    ),
+                    DenseSearchHit(
+                        chunk_id="doc-1:000000",
+                        document_id="doc-1",
+                        chunk_index=0,
+                        score=0.98,
+                    ),
+                ]
+
+                response = client.post(
+                    "/api/query/hybrid",
+                    json={"query": "alpha beta", "top_k": 2},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual(payload["mode"], "hybrid")
+            self.assertEqual([hit["chunk_id"] for hit in payload["hits"]], ["doc-1:000000", "doc-1:000001"])
+            self.assertTrue(all(hit["score"] > 0.0 for hit in payload["hits"]))
+            self.assertEqual(payload["hits"][0]["content"], "alpha alpha beta")
+
+    def _seed_document_chunks(
+        self,
+        db_path: str,
+        *,
+        document_id: str,
+        filename: str,
+        chunks: list[ChunkUpsert],
+    ) -> None:
+        insert_document(
+            db_path,
+            document_id=document_id,
+            filename=filename,
+            source_type="txt",
+            source_path=f"/tmp/{filename}",
+            size_bytes=123,
+            checksum=f"checksum-{document_id}",
+            status="success",
+        )
+        replace_document_chunks(
+            db_path,
+            document_id=document_id,
+            chunks=chunks,
+        )

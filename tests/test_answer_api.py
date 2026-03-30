@@ -26,12 +26,15 @@ os.environ.setdefault("EMBEDDING_API_ENABLED", "false")
 
 from app.core.settings import Settings
 from app.main import create_app
+from app.storage.document_repository import insert_document
+from app.storage.indexing_repository import ChunkUpsert, replace_document_chunks
 from app.storage.qdrant_store import ChunkVector, DenseSearchHit, QdrantConnectionStatus
 
 
 class _InMemoryDenseStore:
     def __init__(self) -> None:
         self._vectors: list[ChunkVector] = []
+        self.dense_hits_override: list[DenseSearchHit] | None = None
 
     def check_connection(self) -> QdrantConnectionStatus:
         return QdrantConnectionStatus(reachable=True)
@@ -49,6 +52,9 @@ class _InMemoryDenseStore:
         query_vector: list[float],
         limit: int,
     ) -> list[DenseSearchHit]:
+        if self.dense_hits_override is not None:
+            return self.dense_hits_override[:limit]
+
         return [
             DenseSearchHit(
                 chunk_id=item.chunk_id,
@@ -295,25 +301,128 @@ class TestAnswerApi(unittest.TestCase):
             self.assertIn("Retrieved context:", payload["prompt"])
             self.assertIn("[S1]", payload["prompt"])
 
-    def test_answer_endpoint_returns_not_implemented_for_unsupported_mode(self) -> None:
+    def test_answer_endpoint_supports_hybrid_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
+            generation_client = _RecordingGenerationClient("Hybrid answer [S1]")
+            store = _InMemoryDenseStore()
             app = create_app(
                 settings=_build_settings(
                     sqlite_path=str(Path(temp_dir) / "app.db"),
                     storage_dir=str(Path(temp_dir) / "uploads"),
                 ),
-                store_factory=lambda _: _InMemoryDenseStore(),  # type: ignore[arg-type]
-                generation_client_factory=lambda _: _RecordingGenerationClient(),
+                store_factory=lambda _: store,  # type: ignore[arg-type]
+                generation_client_factory=lambda _: generation_client,
             )
 
             with TestClient(app) as client:
+                self._seed_document_chunks(
+                    app.state.sqlite_db_path,
+                    document_id="doc-1",
+                    filename="notes.txt",
+                    chunks=[
+                        ChunkUpsert(
+                            id="doc-1:000000",
+                            chunk_index=0,
+                            content="alpha alpha beta",
+                        ),
+                        ChunkUpsert(
+                            id="doc-1:000001",
+                            chunk_index=1,
+                            content="alpha beta gamma",
+                        ),
+                    ],
+                )
+                store.dense_hits_override = [
+                    DenseSearchHit(
+                        chunk_id="doc-1:000001",
+                        document_id="doc-1",
+                        chunk_index=1,
+                        score=0.99,
+                    ),
+                    DenseSearchHit(
+                        chunk_id="doc-1:000000",
+                        document_id="doc-1",
+                        chunk_index=0,
+                        score=0.98,
+                    ),
+                ]
+
                 response = client.post(
                     "/api/query/answer",
-                    json={"query": "What does the note mention?", "mode": "hybrid"},
+                    json={"query": "alpha beta", "top_k": 2, "mode": "hybrid"},
                 )
 
-            self.assertEqual(response.status_code, 501)
-            self.assertIn("not implemented", response.json()["detail"])
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual(payload["mode"], "hybrid")
+            self.assertEqual(payload["answer"], "Hybrid answer [S1]")
+            self.assertEqual([source["chunk_id"] for source in payload["sources"]], ["doc-1:000000", "doc-1:000001"])
+            self.assertEqual(payload["sources"][0]["source_id"], "S1")
+            self.assertEqual(len(generation_client.calls), 1)
+
+    # prompt_debug in hybrid mode should include retrieved context in the prompt when enabled, and the sources should reflect the fused results.
+    def test_prompt_debug_supports_hybrid_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            generation_client = _RecordingGenerationClient()
+            store = _InMemoryDenseStore()
+            app = create_app(
+                settings=_build_settings(
+                    sqlite_path=str(Path(temp_dir) / "app.db"),
+                    storage_dir=str(Path(temp_dir) / "uploads"),
+                ),
+                store_factory=lambda _: store,  # type: ignore[arg-type]
+                generation_client_factory=lambda _: generation_client,
+            )
+
+            with TestClient(app) as client:
+                self._seed_document_chunks(
+                    app.state.sqlite_db_path,
+                    document_id="doc-1",
+                    filename="notes.txt",
+                    chunks=[
+                        ChunkUpsert(
+                            id="doc-1:000000",
+                            chunk_index=0,
+                            content="alpha alpha beta",
+                        ),
+                        ChunkUpsert(
+                            id="doc-1:000001",
+                            chunk_index=1,
+                            content="alpha beta gamma",
+                        ),
+                    ],
+                )
+                store.dense_hits_override = [
+                    DenseSearchHit(
+                        chunk_id="doc-1:000001",
+                        document_id="doc-1",
+                        chunk_index=1,
+                        score=0.99,
+                    ),
+                    DenseSearchHit(
+                        chunk_id="doc-1:000000",
+                        document_id="doc-1",
+                        chunk_index=0,
+                        score=0.98,
+                    ),
+                ]
+
+                response = client.post(
+                    "/api/query/prompt-debug",
+                    json={
+                        "query": "alpha beta",
+                        "top_k": 2,
+                        "mode": "hybrid",
+                        "include_context_in_prompt": True,
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual(payload["mode"], "hybrid")
+            self.assertEqual([source["chunk_id"] for source in payload["sources"]], ["doc-1:000000", "doc-1:000001"])
+            self.assertIn("[S1]", payload["prompt"])
+            self.assertEqual(len(generation_client.calls), 0)
 
     def test_answer_endpoint_still_generates_when_no_hits_exist(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -360,3 +469,28 @@ class TestAnswerApi(unittest.TestCase):
             self.assertIn("/api/query/answer", response.text)
             self.assertIn("Retrieval mode", response.text)
             self.assertIn("value=\"lexical\"", response.text)
+            self.assertIn("value=\"hybrid\"", response.text)
+
+    def _seed_document_chunks(
+        self,
+        db_path: str,
+        *,
+        document_id: str,
+        filename: str,
+        chunks: list[ChunkUpsert],
+    ) -> None:
+        insert_document(
+            db_path,
+            document_id=document_id,
+            filename=filename,
+            source_type="txt",
+            source_path=f"/tmp/{filename}",
+            size_bytes=123,
+            checksum=f"checksum-{document_id}",
+            status="success",
+        )
+        replace_document_chunks(
+            db_path,
+            document_id=document_id,
+            chunks=chunks,
+        )
