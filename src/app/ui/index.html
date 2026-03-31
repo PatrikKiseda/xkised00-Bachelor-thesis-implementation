@@ -6,19 +6,102 @@
   <title>Localhost RAG app UI</title>
   <style>
     :root {
-      color-scheme: light;
+      color-scheme: dark;
+      --bg: #111315;
+      --bg-elevated: #171a1d;
+      --bg-soft: #1f2428;
+      --border: #31383f;
+      --text: #edf2f7;
+      --text-muted: #9ca8b4;
+      --accent: #7dd3fc;
+      --accent-strong: #38bdf8;
+      --success: #86efac;
+      --danger: #fca5a5;
+      --shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+    }
+
+    * {
+      box-sizing: border-box;
     }
 
     body {
-      font-family: sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(56, 189, 248, 0.12), transparent 28rem),
+        linear-gradient(180deg, #0d0f10 0%, var(--bg) 100%);
+      color: var(--text);
+      font-family: "Segoe UI", sans-serif;
       line-height: 1.5;
-      margin: 2rem;
-      max-width: 900px;
+      margin: 0;
+      min-height: 100vh;
+      padding: 2rem 1rem 3rem;
+    }
+
+    .app-shell {
+      margin: 0 auto;
+      max-width: 980px;
+    }
+
+    header {
+      margin-bottom: 1.5rem;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    .intro {
+      color: var(--text-muted);
+      max-width: 42rem;
+    }
+
+    .view-switcher {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .view-button,
+    button,
+    input[type="file"]::file-selector-button {
+      appearance: none;
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 0.8rem;
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      padding: 0.7rem 1rem;
+      transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+    }
+
+    .view-button:hover,
+    button:hover,
+    input[type="file"]::file-selector-button:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+
+    .view-button.is-active {
+      background: rgba(56, 189, 248, 0.14);
+      border-color: var(--accent-strong);
+      color: var(--accent);
+    }
+
+    .panel {
+      background: rgba(23, 26, 29, 0.88);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      box-shadow: var(--shadow);
+      margin-bottom: 1rem;
+      padding: 1rem;
     }
 
     form,
     section {
-      margin-bottom: 1.5rem;
+      margin-bottom: 1rem;
     }
 
     label {
@@ -29,11 +112,19 @@
 
     textarea,
     input[type="text"],
+    input[type="file"],
     select {
-      box-sizing: border-box;
+      background: #0f1214;
+      border: 1px solid var(--border);
+      border-radius: 0.8rem;
+      color: var(--text);
       font: inherit;
-      padding: 0.6rem;
+      padding: 0.75rem;
       width: 100%;
+    }
+
+    input[type="file"] {
+      padding: 0.45rem;
     }
 
     textarea {
@@ -42,47 +133,57 @@
     }
 
     textarea[readonly] {
-      background: #dddddd;
-      min-height: 30rem;
+      background: #0b0d0f;
+      min-height: 18rem;
     }
 
     .checkbox-row {
-      margin: 0.5rem 0;
+      align-items: center;
+      display: flex;
+      gap: 0.55rem;
+      margin: 0.7rem 0;
     }
 
     .checkbox-row label {
-      display: inline;
       font-weight: 400;
-      margin-left: 0.35rem;
+      margin: 0;
     }
 
     .actions {
+      display: flex;
+      gap: 0.75rem;
       margin-top: 1rem;
     }
 
     .status {
+      color: var(--text-muted);
       min-height: 1.5rem;
     }
 
-    .panel {
-      border: 1px solid #cfcfcf;
-      padding: 1rem;
+    .status.is-error {
+      color: var(--danger);
+    }
+
+    .status.is-success {
+      color: var(--success);
     }
 
     .source-item,
-    .chunk-item {
-      border-top: 1px solid #ddd;
-      padding: 0.75rem 0;
+    .chunk-item,
+    .document-item {
+      border-top: 1px solid var(--border);
+      padding: 0.8rem 0;
     }
 
     .source-item:first-child,
-    .chunk-item:first-child {
+    .chunk-item:first-child,
+    .document-item:first-child {
       border-top: 0;
       padding-top: 0;
     }
 
     .meta {
-      color: #444;
+      color: var(--text-muted);
       font-size: 0.95rem;
       margin-bottom: 0.35rem;
     }
@@ -91,79 +192,151 @@
       white-space: pre-wrap;
     }
 
+    .document-name {
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+
+    .status-pill {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      display: inline-block;
+      font-size: 0.82rem;
+      margin-left: 0.5rem;
+      padding: 0.12rem 0.55rem;
+      text-transform: uppercase;
+    }
+
+    .status-pill.pending,
+    .status-pill.running {
+      color: #fcd34d;
+    }
+
+    .status-pill.success {
+      color: var(--success);
+    }
+
+    .status-pill.fail {
+      color: var(--danger);
+    }
+
     [hidden] {
       display: none !important;
+    }
+
+    @media (max-width: 720px) {
+      body {
+        padding: 1rem 0.75rem 2rem;
+      }
+
+      .view-switcher,
+      .actions {
+        flex-direction: column;
+      }
+
+      .view-button,
+      button {
+        width: 100%;
+      }
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Localhost RAG app UI</h1>
-    <p>Submit a query, generate an answer, and optionally inspect the grounded prompt and retrieved chunks.</p>
-  </header>
+  <main class="app-shell">
+    <header>
+      <h1>Localhost RAG app UI</h1>
+      <p class="intro">Keep it simple: one view for querying, one view for uploading documents and checking what has been ingested.</p>
+    </header>
 
-  <!-- Singular form for the RAG application -->
-  <form id="queryForm">
-    <div>
-      <label for="queryInput">Query</label>
-      <textarea id="queryInput" name="query" placeholder="Ask a question about your indexed documents." required></textarea>
-    </div>
+    <nav class="view-switcher" aria-label="UI views">
+      <button id="queryViewButton" class="view-button is-active" type="button" data-view="query">Query</button>
+      <button id="documentsViewButton" class="view-button" type="button" data-view="documents">Documents</button>
+    </nav>
 
-    <div>
-      <label for="modeSelect">Retrieval mode</label>
-      <select id="modeSelect" name="mode">
-        <option value="dense" selected>Dense</option>
-        <option value="lexical">Lexical</option>
-        <option value="hybrid">Hybrid</option>
-      </select>
-    </div>
+    <section id="queryView">
+      <form id="queryForm" class="panel">
+        <div>
+          <label for="queryInput">Query</label>
+          <textarea id="queryInput" name="query" placeholder="Ask a question about your indexed documents." required></textarea>
+        </div>
 
-    <!-- Checkbox: if retrieved chunks should be injected into the final LiteLLM prompt. -->
-    <div class="checkbox-row">
-      <input id="includeContext" name="includeContext" type="checkbox" checked>
-      <label for="includeContext">Include retrieved context in prompt</label>
-    </div>
+        <div>
+          <label for="modeSelect">Retrieval mode</label>
+          <select id="modeSelect" name="mode">
+            <option value="dense" selected>Dense</option>
+            <option value="lexical">Lexical</option>
+            <option value="hybrid">Hybrid</option>
+          </select>
+        </div>
 
-    <!-- Checkbox: when checked, UI makes an extra debug call to show prompt + retrieved chunks. -->
-    <div class="checkbox-row">
-      <input id="showPromptDebug" name="showPromptDebug" type="checkbox">
-      <label for="showPromptDebug">Show prompt debug</label>
-    </div>
+        <div class="checkbox-row">
+          <input id="includeContext" name="includeContext" type="checkbox" checked>
+          <label for="includeContext">Include retrieved context in prompt</label>
+        </div>
 
-    <div class="actions">
-      <button id="submitButton" type="submit">Run query</button>
-    </div>
-  </form>
+        <div class="checkbox-row">
+          <input id="showPromptDebug" name="showPromptDebug" type="checkbox">
+          <label for="showPromptDebug">Show prompt debug</label>
+        </div>
 
-  <!-- Status area for loading, success and error messages. -->
-  <p id="statusMessage" class="status" aria-live="polite"></p>
+        <div class="actions">
+          <button id="submitButton" type="submit">Run query</button>
+        </div>
+      </form>
 
-  <!-- Read-only answer field for the generated text -->
-  <section class="panel">
-    <h2>Answer</h2>
-    <label for="answerOutput">Generated answer</label>
-    <textarea id="answerOutput" readonly placeholder="The generated answer will appear here."></textarea>
-  </section>
+      <p id="statusMessage" class="status" aria-live="polite"></p>
 
-  <!-- The cited sources area lists the retrieved chunks returned by the answer endpoint. -->
-  <section class="panel">
-    <h2>Cited sources</h2>
-    <div id="sourcesOutput">No sources yet.</div>
-  </section>
+      <section class="panel">
+        <h2>Answer</h2>
+        <label for="answerOutput">Generated answer</label>
+        <textarea id="answerOutput" readonly placeholder="The generated answer will appear here."></textarea>
+      </section>
 
-  <!-- Debug section stays hidden unless the checkbox for it is checked. -->
-  <section id="debugSection" class="panel" hidden>
-    <h2>Prompt debug</h2>
+      <section class="panel">
+        <h2>Cited sources</h2>
+        <div id="sourcesOutput">No sources yet.</div>
+      </section>
 
-    <label for="promptOutput">Final prompt</label>
-    <textarea id="promptOutput" readonly placeholder="The final prompt will appear here when debug is enabled."></textarea>
+      <section id="debugSection" class="panel" hidden>
+        <h2>Prompt debug</h2>
 
-    <h3>Retrieved chunks</h3>
-    <div id="chunksOutput">No debug chunks yet.</div>
-  </section>
+        <label for="promptOutput">Final prompt</label>
+        <textarea id="promptOutput" readonly placeholder="The final prompt will appear here when debug is enabled."></textarea>
 
+        <h3>Retrieved chunks</h3>
+        <div id="chunksOutput">No debug chunks yet.</div>
+      </section>
+    </section>
+
+    <section id="documentsView" hidden>
+      <form id="uploadForm" class="panel">
+        <h2>Add document</h2>
+        <div>
+          <label for="documentFileInput">File</label>
+          <input id="documentFileInput" name="file" type="file" accept=".txt,.md,.pdf" required>
+        </div>
+
+        <div class="actions">
+          <button id="uploadButton" type="submit">Upload document</button>
+          <button id="refreshDocumentsButton" type="button">Refresh documents</button>
+        </div>
+      </form>
+
+      <p id="uploadStatusMessage" class="status" aria-live="polite"></p>
+
+      <section class="panel">
+        <h2>Stored documents</h2>
+        <div id="documentsOutput">Loading documents...</div>
+      </section>
+    </section>
+  </main>
+
+  <!--This script handles all the interactivity of the UI, including switching views, submitting queries, uploading documents, and rendering results and statuses.-->  
   <script>
-    // Cache of all DOM elements once so the event handler stays small.
+    const queryView = document.getElementById("queryView");
+    const documentsView = document.getElementById("documentsView");
+    const viewButtons = Array.from(document.querySelectorAll(".view-button"));
+
     const queryForm = document.getElementById("queryForm");
     const queryInput = document.getElementById("queryInput");
     const modeSelect = document.getElementById("modeSelect");
@@ -177,16 +350,50 @@
     const promptOutput = document.getElementById("promptOutput");
     const chunksOutput = document.getElementById("chunksOutput");
 
+    const uploadForm = document.getElementById("uploadForm");
+    const documentFileInput = document.getElementById("documentFileInput");
+    const uploadButton = document.getElementById("uploadButton");
+    const refreshDocumentsButton = document.getElementById("refreshDocumentsButton");
+    const uploadStatusMessage = document.getElementById("uploadStatusMessage");
+    const documentsOutput = document.getElementById("documentsOutput");
+
     const DEFAULT_TOP_K = 5;
 
-    // Toggle the loading state in one place so the button/status always stay in sync.
+    function setStatus(element, message, tone) {
+      element.textContent = message;
+      element.classList.remove("is-error", "is-success");
+
+      if (tone === "error") {
+        element.classList.add("is-error");
+      } else if (tone === "success") {
+        element.classList.add("is-success");
+      }
+    }
+
+    function switchView(viewName) {
+      const showQuery = viewName === "query";
+
+      queryView.hidden = !showQuery;
+      documentsView.hidden = showQuery;
+
+      viewButtons.forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.view === viewName);
+      });
+    }
+
     function setLoadingState(isLoading, message) {
       submitButton.disabled = isLoading;
       submitButton.textContent = isLoading ? "Running..." : "Run query";
-      statusMessage.textContent = message;
+      setStatus(statusMessage, message, null);
     }
 
-    // Render the sources returned by the answer endpoint.
+    function setUploadLoadingState(isLoading, message, tone) {
+      uploadButton.disabled = isLoading;
+      refreshDocumentsButton.disabled = isLoading;
+      uploadButton.textContent = isLoading ? "Uploading..." : "Upload document";
+      setStatus(uploadStatusMessage, message, tone);
+    }
+
     function renderSources(sources) {
       if (!Array.isArray(sources) || sources.length === 0) {
         sourcesOutput.textContent = "No sources returned.";
@@ -219,7 +426,6 @@
       sourcesOutput.replaceChildren(fragment);
     }
 
-    // Render the retrieved chunks from the prompt-debug endpoint.
     function renderDebugChunks(chunks) {
       if (!Array.isArray(chunks) || chunks.length === 0) {
         chunksOutput.textContent = "No retrieved chunks returned.";
@@ -252,7 +458,43 @@
       chunksOutput.replaceChildren(fragment);
     }
 
-    // Small helper to convert non-2xx responses into readable UI errors.
+    function renderDocuments(documents) {
+      if (!Array.isArray(documents) || documents.length === 0) {
+        documentsOutput.textContent = "No documents uploaded yet.";
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+
+      documents.forEach((documentRecord) => {
+        const wrapper = document.createElement("article");
+        wrapper.className = "document-item";
+
+        const title = document.createElement("div");
+        title.className = "document-name";
+        title.textContent = documentRecord.filename || "Unknown file";
+
+        const statusPill = document.createElement("span");
+        statusPill.className = `status-pill ${documentRecord.status || "pending"}`;
+        statusPill.textContent = documentRecord.status || "unknown";
+        title.appendChild(statusPill);
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent = [
+          documentRecord.source_type || "unknown type",
+          typeof documentRecord.size_bytes === "number" ? `${documentRecord.size_bytes} bytes` : null,
+          documentRecord.created_at || null,
+          documentRecord.id || null,
+        ].filter(Boolean).join(" | ");
+
+        wrapper.append(title, meta);
+        fragment.appendChild(wrapper);
+      });
+
+      documentsOutput.replaceChildren(fragment);
+    }
+
     async function parseErrorResponse(response) {
       try {
         const data = await response.json();
@@ -266,13 +508,39 @@
       return `Request failed with status ${response.status}.`;
     }
 
-    // Reset only the debug-specific fields when debug mode is off or before a new request.
     function clearDebugOutput() {
       promptOutput.value = "";
       chunksOutput.textContent = "No debug chunks yet.";
     }
 
-    // Main form handler: answer request first, optional prompt-debug request second.
+    async function loadDocuments() {
+      documentsOutput.textContent = "Loading documents...";
+
+      try {
+        const response = await fetch("/api/documents");
+        if (!response.ok) {
+          throw new Error(await parseErrorResponse(response));
+        }
+
+        const data = await response.json();
+        renderDocuments(data.documents || []);
+      } catch (error) {
+        documentsOutput.textContent = error instanceof Error ? error.message : "Failed to load documents.";
+      }
+    }
+
+    viewButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        switchView(button.dataset.view);
+      });
+    });
+
+    refreshDocumentsButton.addEventListener("click", async () => {
+      setUploadLoadingState(false, "Refreshing documents...", null);
+      await loadDocuments();
+      setUploadLoadingState(false, "Document list refreshed.", "success");
+    });
+
     queryForm.addEventListener("submit", async (event) => {
       event.preventDefault();
 
@@ -282,7 +550,7 @@
       const showPromptDebug = showPromptDebugCheckbox.checked;
 
       if (query === "") {
-        statusMessage.textContent = "Please enter a query.";
+        setStatus(statusMessage, "Please enter a query.", "error");
         queryInput.focus();
         return;
       }
@@ -318,7 +586,7 @@
         renderSources(answerData.sources || []);
 
         if (showPromptDebug) {
-          statusMessage.textContent = `Answer loaded. Fetching ${mode} prompt debug...`;
+          setStatus(statusMessage, `Answer loaded. Fetching ${mode} prompt debug...`, null);
 
           const debugResponse = await fetch("/api/query/prompt-debug", {
             method: "POST",
@@ -337,14 +605,58 @@
           renderDebugChunks(debugData.sources || []);
         }
 
-        setLoadingState(
-          false,
+        setLoadingState(false, "");
+        setStatus(
+          statusMessage,
           showPromptDebug ? `Answer and prompt debug loaded for ${mode} mode.` : `Answer loaded for ${mode} mode.`,
+          "success",
         );
       } catch (error) {
-        setLoadingState(false, error instanceof Error ? error.message : "Something went wrong.");
+        setLoadingState(false, "");
+        setStatus(statusMessage, error instanceof Error ? error.message : "Something went wrong.", "error");
       }
     });
+
+    uploadForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const file = documentFileInput.files && documentFileInput.files[0];
+
+      if (!file) {
+        setStatus(uploadStatusMessage, "Please choose a .txt, .md, or .pdf file.", "error");
+        documentFileInput.focus();
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      setUploadLoadingState(true, `Uploading ${file.name}...`, null);
+
+      try {
+        const response = await fetch("/api/documents/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error(await parseErrorResponse(response));
+        }
+
+        const data = await response.json();
+        uploadForm.reset();
+        await loadDocuments();
+        setUploadLoadingState(
+          false,
+          `Uploaded ${data.filename || file.name}. Indexing job ${data.job_id || "created"} is now running in the background.`,
+          "success",
+        );
+      } catch (error) {
+        setUploadLoadingState(false, error instanceof Error ? error.message : "Upload failed.", "error");
+      }
+    });
+
+    loadDocuments();
   </script>
 </body>
 </html>
