@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Localhost RAG app UI</title>
+  <title>RAG client</title>
   <style>
     :root {
       color-scheme: dark;
@@ -13,8 +13,8 @@
       --border: #31383f;
       --text: #edf2f7;
       --text-muted: #9ca8b4;
-      --accent: #7dd3fc;
-      --accent-strong: #38bdf8;
+      --accent: #d1d5db;
+      --accent-strong: #f3f4f6;
       --success: #86efac;
       --danger: #fca5a5;
       --shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
@@ -25,9 +25,7 @@
     }
 
     body {
-      background:
-        radial-gradient(circle at top, rgba(56, 189, 248, 0.12), transparent 28rem),
-        linear-gradient(180deg, #0d0f10 0%, var(--bg) 100%);
+      background: var(--bg);
       color: var(--text);
       font-family: "Segoe UI", sans-serif;
       line-height: 1.5;
@@ -50,11 +48,6 @@
     h3,
     p {
       margin-top: 0;
-    }
-
-    .intro {
-      color: var(--text-muted);
-      max-width: 42rem;
     }
 
     .view-switcher {
@@ -85,7 +78,7 @@
     }
 
     .view-button.is-active {
-      background: rgba(56, 189, 248, 0.14);
+      background: #2a3035;
       border-color: var(--accent-strong);
       color: var(--accent);
     }
@@ -244,8 +237,7 @@
 <body>
   <main class="app-shell">
     <header>
-      <h1>Localhost RAG app UI</h1>
-      <p class="intro">Keep it simple: one view for querying, one view for uploading documents and checking what has been ingested.</p>
+      <h1>RAG client</h1>
     </header>
 
     <nav class="view-switcher" aria-label="UI views">

@@ -464,7 +464,7 @@ class TestAnswerApi(unittest.TestCase):
                 response = client.get("/")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("Localhost RAG app UI", response.text)
+            self.assertIn("RAG client", response.text)
 
             self.assertIn("/api/query/answer", response.text)
             self.assertIn("Retrieval mode", response.text)
