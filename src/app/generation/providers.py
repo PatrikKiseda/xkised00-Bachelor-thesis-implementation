@@ -26,7 +26,7 @@ class LiteLLMGenerationClient:
         response = litellm_completion(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
+            temperature=_resolve_temperature(model=self.model, temperature=temperature),
             api_key=self.api_key,
         )
 
@@ -43,6 +43,19 @@ def build_generation_client(settings: Settings) -> GenerationClient:
         model=settings.litellm_model,
         api_key=settings.openai_api_key,
     )
+
+
+# _resolve_temperature: GPT5.x <-Current provider rejects anything else than the default temperature through LiteLLM.
+def _resolve_temperature(*, model: str, temperature: float) -> float:
+    if _requires_default_temperature(model):
+        return 1.0
+    return temperature
+
+# _requires_default_temperature: extra check if the model is a GPT5.x variant that requires the default temperature, based on the model name.
+def _requires_default_temperature(model: str) -> bool:
+    providerless_model = model.split("/", maxsplit=1)[-1].lower()
+    return providerless_model.startswith("gpt-5") and not providerless_model.startswith("gpt-5.1")
+
 
 # Helper functions to extract text content from the LiteLLM response, which may have different structures depending on the model and response format.
 def _extract_message_text(response: Any) -> str:

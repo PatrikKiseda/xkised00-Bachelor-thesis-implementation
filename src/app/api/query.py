@@ -6,6 +6,7 @@ Description: Query and answer endpoints.
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -14,6 +15,7 @@ from app.generation.service import AnswerGenerator, resolve_final_prompt
 from app.retrieval.service import RetrievedChunk, build_retriever
 
 router = APIRouter(prefix="/api/query", tags=["query"])
+logger = logging.getLogger(__name__)
 
 QueryMode = Literal["dense", "lexical", "hybrid"]
 
@@ -68,6 +70,7 @@ def query_answer(request: Request, payload: AnswerQueryRequest) -> dict[str, obj
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("Failed to generate final answer.")
         raise HTTPException(status_code=502, detail="Failed to generate final answer.") from exc
 
     return {
