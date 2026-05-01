@@ -6,18 +6,18 @@
   <title>RAG client</title>
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #111315;
-      --bg-elevated: #171a1d;
-      --bg-soft: #1f2428;
-      --border: #31383f;
-      --text: #edf2f7;
-      --text-muted: #9ca8b4;
-      --accent: #d1d5db;
-      --accent-strong: #f3f4f6;
-      --success: #86efac;
-      --danger: #fca5a5;
-      --shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+      color-scheme: light;
+      --bg: #ffffff;
+      --bg-elevated: #ffffff;
+      --bg-soft: #f3f4f6;
+      --border: #d1d5db;
+      --text: #111827;
+      --text-muted: #4b5563;
+      --accent: #111827;
+      --accent-strong: #000000;
+      --success: #166534;
+      --danger: #991b1b;
+      --shadow: 0 10px 28px rgba(17, 24, 39, 0.08);
     }
 
     * {
@@ -78,13 +78,13 @@
     }
 
     .view-button.is-active {
-      background: #2a3035;
+      background: #ffffff;
       border-color: var(--accent-strong);
       color: var(--accent);
     }
 
     .panel {
-      background: rgba(23, 26, 29, 0.88);
+      background: var(--bg-elevated);
       border: 1px solid var(--border);
       border-radius: 1rem;
       box-shadow: var(--shadow);
@@ -107,7 +107,7 @@
     input[type="text"],
     input[type="file"],
     select {
-      background: #0f1214;
+      background: #ffffff;
       border: 1px solid var(--border);
       border-radius: 0.8rem;
       color: var(--text);
@@ -126,7 +126,7 @@
     }
 
     textarea[readonly] {
-      background: #0b0d0f;
+      background: #f9fafb;
       min-height: 18rem;
     }
 
@@ -202,7 +202,7 @@
 
     .status-pill.pending,
     .status-pill.running {
-      color: #fcd34d;
+      color: #92400e;
     }
 
     .status-pill.success {
@@ -279,7 +279,6 @@
       <p id="statusMessage" class="status" aria-live="polite"></p>
 
       <section class="panel">
-        <h2>Answer</h2>
         <label for="answerOutput">Generated answer</label>
         <textarea id="answerOutput" readonly placeholder="The generated answer will appear here."></textarea>
       </section>
