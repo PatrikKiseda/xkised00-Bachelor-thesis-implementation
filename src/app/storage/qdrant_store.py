@@ -13,44 +13,54 @@ from qdrant_client import models
 
 from app.core.settings import Settings
 
-# QdrantConnectionStatus decorator: Status container for connectivity checks. https://docs.python.org/3/library/dataclasses.html for details.
 @dataclass(slots=True)
-# QdrantConnectionStatus: normalized result payload returned by connection checks.
 class QdrantConnectionStatus:
+    """Normalized result payload returned by connection checks."""
+
     reachable: bool
     error: str | None = None
 
 
-# ChunkVector: normalized vector attribute payload passed from indexing pipeline.
 @dataclass(slots=True)
 class ChunkVector:
+    """Normalized vector payload passed from indexing pipeline."""
+
     chunk_id: str
     document_id: str
     chunk_index: int
     vector: list[float]
 
 
-# DenseSearchHit: normalized dense retrieval output used by query endpoint. This serves as an abstraction to isolate the rest of the app from
-# qdrant-specific response formats.
-# Includes minimal metadata for retrieval-augmented generation and further processing.
 @dataclass(slots=True)
 class DenseSearchHit:
+    """Normalized dense retrieval hit, hiding Qdrant response details."""
+
     chunk_id: str
     document_id: str
     chunk_index: int
     score: float
 
-# QdrantStore: small wrapper for QdrantClient. 
-# Used by app/script health checks.
 class QdrantStore:
-    # __init__: stores the already-created Qdrant client instance.
+    """Small wrapper for QdrantClient used by app and scripts."""
+
     def __init__(self, client: QdrantClient):
+        """Store the already-created Qdrant client instance.
+
+        Args:
+            client: Qdrant client instance.
+        """
         self._client = client
 
-    # from_settings decorator: exposes factory construction.
     @classmethod
-    # from_settings: builds a configured Qdrant client using env-backed settings. See get_settings() in src/app/core/settings.py for details on how settings are loaded.
     def from_settings(cls, settings: Settings) -> "QdrantStore":
+        """Build a configured Qdrant client using env-backed settings.
+
+        Args:
+            settings: Runtime settings.
+
+        Returns:
+            Configured Qdrant store wrapper.
+        """
         client = QdrantClient(
             url=str(settings.qdrant_url),
             api_key=settings.qdrant_api_key,
@@ -58,20 +68,33 @@ class QdrantStore:
         )
         return cls(client)
 
-    # check_connection: probes Qdrant and returns a status object instead of raising.
     def check_connection(self) -> QdrantConnectionStatus:
+        """Probe Qdrant and return a status object instead of raising.
+
+        Returns:
+            Connection status.
+        """
         try:
             self._client.get_collections()
             return QdrantConnectionStatus(reachable=True)
         except Exception as exc:  # pragma: no cover - wrapped for app-level handling
             return QdrantConnectionStatus(reachable=False, error=str(exc))
 
-    # ping: convenience boolean check for quick reachability checks.
     def ping(self) -> bool:
+        """Quick boolean reachability check.
+
+        Returns:
+            True when Qdrant is reachable.
+        """
         return self.check_connection().reachable
 
-    # ensure_collection: create the collection if missing and force deterministic vector size if present.
     def ensure_collection(self, *, collection_name: str, vector_size: int) -> None:
+        """Create collection if missing and validate vector size if present.
+
+        Args:
+            collection_name: Qdrant collection name.
+            vector_size: Expected vector size.
+        """
         try:
             collection = self._client.get_collection(collection_name=collection_name)
         except Exception:
@@ -93,13 +116,18 @@ class QdrantStore:
                 f"configured={configured_size}, expected={vector_size}."
             )
 
-    # upsert_chunk_vectors: update and insert chunk vectors with minimal payload metadata for dense retrieval.
     def upsert_chunk_vectors(
         self,
         *,
         collection_name: str,
         vectors: list[ChunkVector],
     ) -> None:
+        """Insert or update chunk vectors with minimal retrieval metadata.
+
+        Args:
+            collection_name: Qdrant collection name.
+            vectors: Chunk vectors to upsert.
+        """
         if not vectors:
             return
 
@@ -118,9 +146,6 @@ class QdrantStore:
         ]
         self._client.upsert(collection_name=collection_name, points=points, wait=True)
 
-    # search_dense: Dense similarity search and normalize result payload.
-    # We return a simplified list of hits. The vector data is not included,
-    # the retrieved text is accessed via the chunk_id/document_id metadata.
     def search_dense(
         self,
         *,
@@ -128,6 +153,16 @@ class QdrantStore:
         query_vector: list[float],
         limit: int,
     ) -> list[DenseSearchHit]:
+        """Run dense similarity search and normalize result payload.
+
+        Args:
+            collection_name: Qdrant collection name.
+            query_vector: Query embedding vector.
+            limit: Max hits to return.
+
+        Returns:
+            Simplified dense search hits without vector data.
+        """
         response = self._client.query_points(
             collection_name=collection_name,
             query=query_vector,
@@ -158,8 +193,15 @@ class QdrantStore:
         return hits
 
 
-# _extract_vector_size: read vector size from collection config handling single/multi-vector formats.
 def _extract_vector_size(collection: models.CollectionInfo) -> int:
+    """Read vector size from collection config.
+
+    Args:
+        collection: Qdrant collection info.
+
+    Returns:
+        Configured vector size.
+    """
     vectors_config = collection.config.params.vectors
     if isinstance(vectors_config, models.VectorParams):
         return int(vectors_config.size)

@@ -21,9 +21,10 @@ RetrievalMode = Literal["dense", "lexical", "hybrid"]
 DEFAULT_RRF_K = 60
 
 
-# RetrievedChunk: normalized enriched retrieval result shared by query + generation.
 @dataclass(slots=True)
 class RetrievedChunk:
+    """Normalized enriched retrieval result shared by query and generation."""
+
     source_id: str
     chunk_id: str
     document_id: str
@@ -33,29 +34,49 @@ class RetrievedChunk:
     content: str
 
 
-# Retriever: retrieval adapter contract for dense/lexical/hybrid modes.
 class Retriever(Protocol):
+    """Retrieval adapter contract for dense, lexical, and hybrid modes."""
+
     mode: RetrievalMode
 
     def retrieve(self, *, query: str, top_k: int) -> list[RetrievedChunk]:
+        """Retrieve chunks for a query.
+
+        Args:
+            query: User query text.
+            top_k: Number of chunks to return.
+
+        Returns:
+            Retrieved chunks.
+        """
         ...
 
 
-# FusedChunkCandidate: internal helper to track chunk candidates during RRF fusion.
 @dataclass(slots=True)
 class _FusedChunkCandidate:
+    """Internal helper to track chunk candidates during RRF fusion."""
+
     chunk: RetrievedChunk
     fused_score: float
     best_rank: int
 
 
-# fuse_ranked_chunks_rrf: combine ranked lists using only rank positions, not raw score magnitudes.
 def fuse_ranked_chunks_rrf(
     # ranked_lists: variable number of ranked chunk lists to fuse.
     *ranked_lists: list[RetrievedChunk],
     limit: int,
     rrf_k: int = DEFAULT_RRF_K,
 ) -> list[RetrievedChunk]:
+    """Combine ranked lists using rank positions, not raw score magnitudes.
+
+    Args:
+        *ranked_lists: Ranked chunk lists to fuse.
+        limit: Maximum number of fused results.
+        rrf_k: Reciprocal Rank Fusion k parameter.
+
+    Returns:
+        Fused retrieved chunks.
+    """
     if limit <= 0:
         return []
 
@@ -110,9 +131,10 @@ def fuse_ranked_chunks_rrf(
 
     return fused_results
 
-# DenseRetriever: implementation of Retriever for dense vector search using Qdrant and SQLite for chunk enrichment.
 @dataclass(slots=True)
 class DenseRetriever:
+    """Retriever for dense vector search using Qdrant and SQLite enrichment."""
+
     db_path: str
     embedding_client: EmbeddingClient
     qdrant_store: QdrantStore
@@ -120,8 +142,16 @@ class DenseRetriever:
     qdrant_vector_size: int
     mode: RetrievalMode = "dense"
 
-    # retrieve: run dense embedding + Qdrant search and hydrate the chunk content from SQLite.
     def retrieve(self, *, query: str, top_k: int) -> list[RetrievedChunk]:
+        """Run dense embedding + Qdrant search and hydrate chunk content.
+
+        Args:
+            query: User query text.
+            top_k: Number of chunks to return.
+
+        Returns:
+            Retrieved chunks with text content.
+        """
         embedding_result = self.embedding_client.embed_texts([query])
         if not embedding_result.items or not embedding_result.items[0].is_success:
             raise HTTPException(status_code=502, detail="Failed to generate query embedding.")
@@ -173,14 +203,23 @@ class DenseRetriever:
 
         return retrieved_chunks
 
-# LexicalRetriever: implementation of Retriever for lexical search using SQLite FTS5.
 @dataclass(slots=True)
 class LexicalRetriever:
+    """Retriever for lexical search using SQLite FTS5."""
+
     db_path: str
     mode: RetrievalMode = "lexical"
 
-    # retrieve: run SQLite FTS5 lexical search and normalize the hits.
     def retrieve(self, *, query: str, top_k: int) -> list[RetrievedChunk]:
+        """Run SQLite FTS5 lexical search and normalize hits.
+
+        Args:
+            query: User query text.
+            top_k: Number of chunks to return.
+
+        Returns:
+            Retrieved chunks.
+        """
         lexical_rows = search_chunks_lexical(
             self.db_path,
             query_text=query,
@@ -203,6 +242,8 @@ class LexicalRetriever:
 
 @dataclass(slots=True)
 class HybridRetriever:
+    """Retriever that runs dense and lexical search, then fuses ranks."""
+
     db_path: str
     embedding_client: EmbeddingClient
     qdrant_store: QdrantStore
@@ -211,8 +252,16 @@ class HybridRetriever:
     rrf_k: int = DEFAULT_RRF_K
     mode: RetrievalMode = "hybrid"
 
-    # retrieve: run both retrievers, fuse by chunk rank, and return the shared retrieval shape.
     def retrieve(self, *, query: str, top_k: int) -> list[RetrievedChunk]:
+        """Run both retrievers, fuse by chunk rank, and return shared shape.
+
+        Args:
+            query: User query text.
+            top_k: Number of chunks to return.
+
+        Returns:
+            Fused retrieved chunks.
+        """
         dense_results = DenseRetriever(
             db_path=self.db_path,
             embedding_client=self.embedding_client,
@@ -230,7 +279,6 @@ class HybridRetriever:
         )
 
 
-# build_retriever: select the active retriever for dense, lexical, and hybrid modes.
 def build_retriever(
     *,
     mode: RetrievalMode,
@@ -240,6 +288,19 @@ def build_retriever(
     qdrant_collection: str,
     qdrant_vector_size: int,
 ) -> Retriever:  
+    """Select the active retriever for dense, lexical, or hybrid modes.
+
+    Args:
+        mode: Retrieval mode to build.
+        db_path: SQLite database path.
+        embedding_client: Embedding client for dense modes.
+        qdrant_store: Qdrant wrapper for dense modes.
+        qdrant_collection: Qdrant collection name.
+        qdrant_vector_size: Expected dense vector size.
+
+    Returns:
+        Configured retriever.
+    """
     if mode == "dense":
         return DenseRetriever(
             db_path=db_path,

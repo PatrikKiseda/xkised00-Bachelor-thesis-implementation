@@ -9,13 +9,22 @@ from __future__ import annotations
 
 SEPARATORS: tuple[str, ...] = ("\n\n", "\n", ". ", "? ", "! ", " ", "")
 
-# chunk_text_recursive: main entrypoint that splits text recursively using separators, and applies overlap.
 def chunk_text_recursive(
     text: str,
     *,
     chunk_size_chars: int,
     chunk_overlap_chars: int,
 ) -> list[str]:
+    """Split text recursively using separators, then apply overlap.
+
+    Args:
+        text: Text to split.
+        chunk_size_chars: Final max-ish chunk size in chars.
+        chunk_overlap_chars: Chars copied from previous chunk.
+
+    Returns:
+        List of chunks ready for indexing.
+    """
     # Public entrypoint used by indexing: split text, apply overlap.
     if chunk_size_chars <= 0:
         raise ValueError("chunk_size_chars must be greater than 0.")
@@ -33,7 +42,6 @@ def chunk_text_recursive(
     # First create a "base" that does not overlap with chunks that are slightly smaller.
     # Then overlaps are added in a second pass, this way we can keep a simpler logic for the recursive splitting.
     base_chunk_size = chunk_size_chars - chunk_overlap_chars
-    # _split_recursive: recursively split text into base chunks using separators, without overlap.
     base_chunks = _split_recursive(
         normalized,
         separators=SEPARATORS,
@@ -42,21 +50,25 @@ def chunk_text_recursive(
     cleaned_base_chunks = [chunk.strip() for chunk in base_chunks if chunk.strip()]
     if chunk_overlap_chars == 0 or len(cleaned_base_chunks) <= 1:
         return cleaned_base_chunks
-    # _apply_overlap: add overlap to the base chunks to create the final output.
     return _apply_overlap(cleaned_base_chunks, chunk_overlap_chars)
 
 # The rest of the functions are internal helpers for the recursive splitting logic.
-# _split_recursive: recursively splits text using the provided separators until chunks fit within chunk_size_chars.
-# first picks the most suitable separator that exists in the text, then splits while keeping separators attached,
-# then merges neighboring pieces until they reach the chunk size limit, and if a piece is still too big, 
-# it recurses with the next separator or hard-splits if no separators are left.
-# inputs: text to split, tuple of separators to try, target chunk size in characters.
 def _split_recursive(
     text: str,
     *,
     separators: tuple[str, ...],
     chunk_size_chars: int,
 ) -> list[str]:
+    """Recursively split text until chunks fit into the target size.
+
+    Args:
+        text: Text to split.
+        separators: Separators to try, from coarse to fine.
+        chunk_size_chars: Target chunk size in characters.
+
+    Returns:
+        Base chunks without overlap.
+    """
     # Recursive splitter: keep trying finer separators until pieces fit.
     separator = _pick_separator(text, separators)
     if separator == "":
@@ -112,6 +124,15 @@ def _split_recursive(
 
 
 def _pick_separator(text: str, separators: tuple[str, ...]) -> str:
+    """Choose the first separator that actually appears in the text.
+
+    Args:
+        text: Text to inspect.
+        separators: Candidate separators.
+
+    Returns:
+        Matching separator, or empty string for hard split.
+    """
     # Choose the first separator that actually appears in the text.
     # Empty string is the fallback that means "just hard split".
     for separator in separators:
@@ -123,6 +144,15 @@ def _pick_separator(text: str, separators: tuple[str, ...]) -> str:
 
 
 def _split_keep_separator(text: str, separator: str) -> list[str]:
+    """Split text while keeping separators attached to previous pieces.
+
+    Args:
+        text: Text to split.
+        separator: Separator to split on.
+
+    Returns:
+        Split pieces with separators preserved.
+    """
     # Split text but keep separators attached to previous pieces.
     # That preserves punctuation/newline context better than dropping them.
     if not separator:
@@ -149,12 +179,20 @@ def _split_keep_separator(text: str, separator: str) -> list[str]:
 
     return splits
 
-# _merge_splits: greedy merge of neighboring pieces until they reach chunk_size_chars, used after splitting to create final chunks.
 def _merge_splits(
     splits: list[str],
     *,
     chunk_size_chars: int,
 ) -> list[str]:
+    """Greedily merge nearby pieces until they reach the chunk size.
+
+    Args:
+        splits: Split pieces to merge.
+        chunk_size_chars: Target chunk size.
+
+    Returns:
+        Merged chunks.
+    """
     merged: list[str] = []
     current = ""
 
@@ -191,9 +229,16 @@ def _merge_splits(
 
     return merged
 
-# Last-resort splitter when we can't use a meaningful separator.
-# This just cuts the text into fixed-size pieces, with less semantic coherence, but guarantees we respect the chunk size limit.
 def _hard_split(text: str, chunk_size_chars: int) -> list[str]:
+    """Last-resort fixed-size splitter when separators are not useful.
+
+    Args:
+        text: Text to split.
+        chunk_size_chars: Max chunk size.
+
+    Returns:
+        Fixed-size chunks.
+    """
     chunks: list[str] = []
     start = 0
 
@@ -208,9 +253,16 @@ def _hard_split(text: str, chunk_size_chars: int) -> list[str]:
 
     return chunks
 
-# Add overlap by prefixing each chunk with the tail of the previous chunk.
-# This gives retrieval continuity across chunk boundaries.
 def _apply_overlap(chunks: list[str], overlap_chars: int) -> list[str]:
+    """Add overlap by prefixing each chunk with previous chunk tail.
+
+    Args:
+        chunks: Base chunks without overlap.
+        overlap_chars: Number of previous chars to prepend.
+
+    Returns:
+        Chunks with overlap applied.
+    """
     if overlap_chars <= 0 or len(chunks) <= 1:
         return chunks
 

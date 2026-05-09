@@ -24,7 +24,6 @@ from app.storage.indexing_repository import (
     replace_document_chunks,
 )
 
-# run_indexing_pipeline: main function that initializes the indexing process for a document.
 def run_indexing_pipeline(
     *,
     db_path: str,
@@ -39,6 +38,24 @@ def run_indexing_pipeline(
     qdrant_collection: str,
     qdrant_vector_size: int,
 ) -> str:
+    """Run the extract -> chunk -> embed -> persist indexing pipeline.
+
+    Args:
+        db_path: SQLite database path.
+        document_id: Document id being indexed.
+        filename: Original filename.
+        source_path: Stored file path.
+        job_id: Indexing job id.
+        chunk_size_chars: Chunk size in chars.
+        chunk_overlap_chars: Chunk overlap in chars.
+        embedding_client: Embedding client to use.
+        qdrant_store: Qdrant wrapper for dense indexing.
+        qdrant_collection: Qdrant collection name.
+        qdrant_vector_size: Expected vector size.
+
+    Returns:
+        Final job status string, `success` or `fail`.
+    """
     try:
         # Mark the job as running and update the document status to ```running``` at the start of the pipeline.
         mark_job_running(db_path, job_id=job_id)
@@ -181,11 +198,18 @@ def run_indexing_pipeline(
         )
         return "fail"
 
-# build_chunk_id: constructs a unique chunk ID using the document ID and the chunk index, formatted as `document_id:chunk_index`.
 def build_chunk_id(document_id: str, chunk_index: int) -> str:
+    """Build unique chunk id from document id and chunk index.
+
+    Args:
+        document_id: Parent document id.
+        chunk_index: Chunk index inside the document.
+
+    Returns:
+        Formatted chunk id.
+    """
     return f"{document_id}:{chunk_index:06d}"
 
-# _persist_failure: helper function to handle failure scenarios, marks the job as failed with an error message and updates the document status to ```fail```.
 def _persist_failure(
     *,
     db_path: str,
@@ -194,6 +218,15 @@ def _persist_failure(
     error_message: str,
     payload_json: str | None = None,
 ) -> None:
+    """Persist a failed job and mark the document as failed too.
+
+    Args:
+        db_path: SQLite database path.
+        document_id: Document id to update.
+        job_id: Job id to update.
+        error_message: Failure message to store.
+        payload_json: Optional extra job payload.
+    """
     safe_error_message = error_message.strip() or "Indexing pipeline failed."
 
     try:
@@ -207,12 +240,18 @@ def _persist_failure(
         update_document_status(db_path, document_id=document_id, status="fail")
 
 
-# _is_embedding_success: helper to make success checks explicit.
 def _is_embedding_success(item: EmbeddingItemResult | None) -> bool:
+    """Check if an embedding item is a usable success.
+
+    Args:
+        item: Embedding item, or None when missing.
+
+    Returns:
+        True when the item has a vector and no error.
+    """
     return bool(item and item.is_success)
 
 
-# _build_embedding_payload_json: serialize embedding stats and error details for jobs API.
 def _build_embedding_payload_json(
     *,
     provider: str,
@@ -223,6 +262,20 @@ def _build_embedding_payload_json(
     indexed_dense_vectors: int,
     dense_index_error: str | None,
 ) -> str:
+    """Serialize embedding stats and error details for jobs API.
+
+    Args:
+        provider: Embedding provider name.
+        model: Embedding model name.
+        total_chunks: Total chunk count.
+        successful_embeddings: Number of successful embeddings.
+        failed_items: Failed embedding items.
+        indexed_dense_vectors: Number of vectors indexed in Qdrant.
+        dense_index_error: Dense indexing error, if any.
+
+    Returns:
+        JSON payload string.
+    """
     warning_errors = [
         {
             "chunk_index": item.index,
@@ -247,7 +300,6 @@ def _build_embedding_payload_json(
     return json.dumps(payload, ensure_ascii=True)
 
 
-# _build_qdrant_vectors: conversion of successful embedding vectors into Qdrant upsert entries.
 def _build_qdrant_vectors(
     *,
     document_id: str,
@@ -255,6 +307,17 @@ def _build_qdrant_vectors(
     items_by_index: dict[int, EmbeddingItemResult],
     expected_vector_size: int,
 ) -> list[ChunkVector]:
+    """Convert successful embedding vectors into Qdrant upsert entries.
+
+    Args:
+        document_id: Parent document id.
+        chunk_texts: Chunk texts, used for index iteration.
+        items_by_index: Embedding results keyed by chunk index.
+        expected_vector_size: Expected vector size from settings.
+
+    Returns:
+        Chunk vectors ready for Qdrant upsert.
+    """
     vectors: list[ChunkVector] = []
     # The loop to iterate through each chunk index and its text, also checking the embedding result for each chunk.
     for chunk_index, _ in enumerate(chunk_texts):

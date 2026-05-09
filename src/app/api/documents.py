@@ -19,13 +19,22 @@ from app.storage.indexing_repository import create_job
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
-# upload_document: handles file uploads, metadata persistence, and background indexing job creation.
 @router.post("/upload", status_code=201)
 async def upload_document(
     request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
 ) -> dict[str, object]:
+    """Handle file upload, metadata save, and background indexing job.
+
+    Args:
+        request: FastAPI request with app state.
+        background_tasks: FastAPI background task manager.
+        file: Uploaded file to ingest.
+
+    Returns:
+        Created document metadata and job id.
+    """
     # validation of file presence.
     if not file.filename:
         raise HTTPException(status_code=415, detail="Unsupported file type.")
@@ -106,9 +115,16 @@ async def upload_document(
     }
 
 
-# get_documents: retrieves list of ingeted documents, useful for verifying sucessful uploads.
 @router.get("")
 def get_documents(request: Request) -> dict[str, list[dict[str, object]]]:
+    """List ingested documents, useful for checking uploads.
+
+    Args:
+        request: FastAPI request with app state.
+
+    Returns:
+        API response with document records.
+    """
     records = list_documents(request.app.state.sqlite_db_path)
     return {
         "documents": [

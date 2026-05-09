@@ -16,15 +16,23 @@ from app.core.settings import Settings
 from app.embeddings.adapter import EmbeddingBatchResult, EmbeddingClient, EmbeddingItemResult
 
 
-# OpenAIEmbeddingClient: API-first embedding adapter using LiteLLM.
 @dataclass(slots=True)
 class OpenAIEmbeddingClient:
+    """API-first embedding adapter using LiteLLM."""
+
     provider: str
     model: str
     api_key: str | None
 
-    # embed_texts: call embedding API once for the whole batch and normalize output.
     def embed_texts(self, texts: list[str]) -> EmbeddingBatchResult:
+        """Call embedding API once for the whole batch and normalize output.
+
+        Args:
+            texts: Text inputs to embed.
+
+        Returns:
+            Batch result with vectors or per-item errors.
+        """
         if not texts:
             return EmbeddingBatchResult(provider=self.provider, model=self.model, items=[])
 
@@ -54,15 +62,23 @@ class OpenAIEmbeddingClient:
         )
 
 
-# DeterministicEmbeddingClient: TESTING-ONLY embedding adapter generating pseudo-vectors..
 @dataclass(slots=True)
 class DeterministicEmbeddingClient:
+    """Testing-only embedding adapter generating pseudo-vectors."""
+
     provider: str
     model: str
     vector_size: int = 8
 
-    # embed_texts: generate deterministic pseudo-vectors so tests avoid external APIs.
     def embed_texts(self, texts: list[str]) -> EmbeddingBatchResult:
+        """Generate deterministic pseudo-vectors so tests avoid external APIs.
+
+        Args:
+            texts: Text inputs to embed.
+
+        Returns:
+            Batch result with deterministic vectors.
+        """
         items = [
             EmbeddingItemResult(
                 index=index,
@@ -75,8 +91,15 @@ class DeterministicEmbeddingClient:
         return EmbeddingBatchResult(provider=self.provider, model=self.model, items=items)
 
 
-# build_embedding_client: provider registry selecting API or deterministic runtime mode.
 def build_embedding_client(settings: Settings) -> EmbeddingClient:
+    """Select API or deterministic embedding runtime mode.
+
+    Args:
+        settings: Runtime settings for provider selection.
+
+    Returns:
+        Configured embedding client.
+    """
     normalized_provider = settings.embedding_provider.strip().lower()
 
     if not settings.embedding_api_enabled:
@@ -99,14 +122,21 @@ def build_embedding_client(settings: Settings) -> EmbeddingClient:
     )
 
 
-# _to_litellm_model: map provider/model into LiteLLM model naming.
 def _to_litellm_model(*, provider: str, model: str) -> str:
+    """Map provider/model into LiteLLM model naming.
+
+    Args:
+        provider: Provider name.
+        model: Model name, with or without provider prefix.
+
+    Returns:
+        LiteLLM-compatible model string.
+    """
     if "/" in model:
         return model
     return f"{provider}/{model}"
 
 
-# _map_litellm_response: normalize LiteLLM response payload to index-aligned result items.
 def _map_litellm_response(
     *,
     provider: str,
@@ -114,6 +144,17 @@ def _map_litellm_response(
     texts: list[str],
     response: Any,
 ) -> EmbeddingBatchResult:
+    """Normalize LiteLLM response payload to index-aligned result items.
+
+    Args:
+        provider: Provider name used for the request.
+        model: Embedding model name used for the request.
+        texts: Original input texts.
+        response: LiteLLM embedding response.
+
+    Returns:
+        Batch result with vectors matched back to input indexes.
+    """
     data = getattr(response, "data", None)
     if data is None and isinstance(response, dict):
         data = response.get("data")
@@ -160,15 +201,31 @@ def _map_litellm_response(
     return EmbeddingBatchResult(provider=provider, model=model, items=items)
 
 
-# _read_item_field: helper to read fields from response items.
 def _read_item_field(item: Any, field_name: str) -> Any:
+    """Read a field from dict-like or object-like response items.
+
+    Args:
+        item: Response item.
+        field_name: Field name to read.
+
+    Returns:
+        Field value, or None when it is missing.
+    """
     if isinstance(item, dict):
         return item.get(field_name)
     return getattr(item, field_name, None)
 
 
-# _hash_to_vector: deterministic pseudo-embedding for testing runtime mode.
 def _hash_to_vector(text: str, *, vector_size: int) -> list[float]:
+    """Create deterministic pseudo-embedding for testing runtime mode.
+
+    Args:
+        text: Text to hash into a vector.
+        vector_size: Wanted vector size.
+
+    Returns:
+        Stable float vector.
+    """
     digest = hashlib.sha256(text.encode("utf-8")).digest()
     vector: list[float] = []
 

@@ -20,35 +20,69 @@ logger = logging.getLogger(__name__)
 QueryMode = Literal["dense", "lexical", "hybrid"]
 
 
-# RetrievalQueryRequest: request schema for direct retrieval endpoints.
 class RetrievalQueryRequest(BaseModel):
+    """Request schema for direct retrieval endpoints."""
+
     query: str = Field(..., min_length=1)
     top_k: int = Field(default=5, ge=1, le=50)
 
-# AnswerQueryRequest: request schema for answer generation endpoint, extending RetrievalQueryRequest with additional parameters for answer generation.
 class AnswerQueryRequest(RetrievalQueryRequest):
+    """Request schema for answer generation endpoint."""
+
     mode: QueryMode = "dense"
     include_context_in_prompt: bool = True
 
 
-# query_dense: run embedding + dense vector search and return hydrated chunk hits.
 @router.post("/dense")
 def query_dense(request: Request, payload: RetrievalQueryRequest) -> dict[str, object]:
+    """Run embedding + dense vector search.
+
+    Args:
+        request: FastAPI request with app state.
+        payload: Retrieval query payload.
+
+    Returns:
+        API response with hydrated chunk hits.
+    """
     return _run_retrieval_query(request=request, mode="dense", query=payload.query, top_k=payload.top_k)
 
-# query_lexical: run lexical search using SQLite FTS5 and return the hits in the same format as dense for consistency.
 @router.post("/lexical")
 def query_lexical(request: Request, payload: RetrievalQueryRequest) -> dict[str, object]:
+    """Run lexical search using SQLite FTS5.
+
+    Args:
+        request: FastAPI request with app state.
+        payload: Retrieval query payload.
+
+    Returns:
+        API response with hits in the shared retrieval shape.
+    """
     return _run_retrieval_query(request=request, mode="lexical", query=payload.query, top_k=payload.top_k)
 
-# query_hybrid: run dense + lexical retrieval and mend the ranked results with RRF.
 @router.post("/hybrid")
 def query_hybrid(request: Request, payload: RetrievalQueryRequest) -> dict[str, object]:
+    """Run dense + lexical retrieval and merge ranked results with RRF.
+
+    Args:
+        request: FastAPI request with app state.
+        payload: Retrieval query payload.
+
+    Returns:
+        API response with fused chunk hits.
+    """
     return _run_retrieval_query(request=request, mode="hybrid", query=payload.query, top_k=payload.top_k)
 
-# query_answer: run retrieval (dense, lexical, or hybrid) and then generate an answer using the retrieved sources.
 @router.post("/answer")
 def query_answer(request: Request, payload: AnswerQueryRequest) -> dict[str, object]:
+    """Run retrieval and generate an answer from the retrieved sources.
+
+    Args:
+        request: FastAPI request with app state.
+        payload: Answer query payload.
+
+    Returns:
+        API response with answer and sources.
+    """
     retriever = build_retriever(
         mode=payload.mode,
         db_path=request.app.state.sqlite_db_path,
@@ -80,9 +114,17 @@ def query_answer(request: Request, payload: AnswerQueryRequest) -> dict[str, obj
         "sources": [_serialize_source(source) for source in result.sources],
     }
 
-# debug endpoint to return the final prompt without actually calling the generation service, used for testing.
 @router.post("/prompt-debug")
 def query_prompt_debug(request: Request, payload: AnswerQueryRequest) -> dict[str, object]:
+    """Return final prompt without calling the generation service.
+
+    Args:
+        request: FastAPI request with app state.
+        payload: Answer query payload.
+
+    Returns:
+        API response with final prompt and sources.
+    """
     retriever = build_retriever(
         mode=payload.mode,
         db_path=request.app.state.sqlite_db_path,
@@ -106,7 +148,6 @@ def query_prompt_debug(request: Request, payload: AnswerQueryRequest) -> dict[st
         "sources": [_serialize_source(source) for source in sources],
     }
 
-# Internal helper to run retrieval queries for both dense and lexical endpoints. Returns the found chunks in a consistent format for the API response. 
 def _run_retrieval_query(
     *,
     request: Request,
@@ -114,6 +155,17 @@ def _run_retrieval_query(
     query: str,
     top_k: int,
 ) -> dict[str, object]:
+    """Run retrieval queries and return hits in consistent API format.
+
+    Args:
+        request: FastAPI request with app state.
+        mode: Retrieval mode to use.
+        query: User query text.
+        top_k: Number of hits to return.
+
+    Returns:
+        API response with retrieval hits.
+    """
     retriever = build_retriever(
         mode=mode,
         db_path=request.app.state.sqlite_db_path,
@@ -131,8 +183,15 @@ def _run_retrieval_query(
     }
 
 
-# Serialization helpers to convert RetrievedChunk objects into dicts for API responses.
 def _serialize_hit(hit: RetrievedChunk) -> dict[str, object]:
+    """Serialize a RetrievedChunk as a direct retrieval hit.
+
+    Args:
+        hit: Retrieved chunk to serialize.
+
+    Returns:
+        Dict used in retrieval responses.
+    """
     return {
         "chunk_id": hit.chunk_id,
         "document_id": hit.document_id,
@@ -141,8 +200,15 @@ def _serialize_hit(hit: RetrievedChunk) -> dict[str, object]:
         "content": hit.content,
     }
 
-# Serialization helper for RetrievedChunk -> dict.
 def _serialize_source(source: RetrievedChunk) -> dict[str, object]:
+    """Serialize a RetrievedChunk as an answer source.
+
+    Args:
+        source: Retrieved source to serialize.
+
+    Returns:
+        Dict used in answer responses.
+    """
     return {
         "source_id": source.source_id,
         "chunk_id": source.chunk_id,

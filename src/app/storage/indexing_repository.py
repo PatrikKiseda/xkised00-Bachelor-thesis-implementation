@@ -10,9 +10,10 @@ import re
 import sqlite3
 from dataclasses import dataclass
 
-# JobRecord: representation of a job record from the ```jobs``` table.
 @dataclass(slots=True)
 class JobRecord:
+    """Job record from the `jobs` table."""
+
     id: str
     job_type: str
     status: str
@@ -23,9 +24,10 @@ class JobRecord:
     started_at: str | None
     finished_at: str | None
 
-# ChunkUpsert: represents a chunk record to be inserted into a document.
 @dataclass(slots=True)
 class ChunkUpsert:
+    """Chunk record to insert for a document."""
+
     id: str
     chunk_index: int
     content: str
@@ -33,18 +35,20 @@ class ChunkUpsert:
     embedding_model: str | None = None
 
 
-# ChunkLookupRecord: chunk row used by dense query endpoint to hydrate hit content.
 @dataclass(slots=True)
 class ChunkLookupRecord:
+    """Chunk row used by dense query endpoint to hydrate hit content."""
+
     id: str
     document_id: str
     filename: str | None
     chunk_index: int
     content: str
 
-# LexicalSearchRow: row returned from a lexical search on the ```chunks_fts``` virtual table, including the raw BM25 score for ranking.
 @dataclass(slots=True)
 class LexicalSearchRow:
+    """Row returned from lexical search, including raw BM25 score."""
+
     chunk_id: str
     document_id: str
     filename: str | None
@@ -52,7 +56,6 @@ class LexicalSearchRow:
     content: str
     raw_score: float
 
-# list_jobs: retrieves a list of job records from the ```jobs``` table, optional filtering by document_id and limited in count.
 def create_job(
     db_path: str,
     *,
@@ -62,6 +65,19 @@ def create_job(
     status: str = "pending",
     payload_json: str | None = None,
 ) -> JobRecord:
+    """Create a job record in the `jobs` table.
+
+    Args:
+        db_path: SQLite database path.
+        job_id: New job id.
+        job_type: Job type name.
+        document_id: Related document id, if any.
+        status: Initial job status.
+        payload_json: Optional job payload.
+
+    Returns:
+        Inserted job record.
+    """
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             """
@@ -85,8 +101,13 @@ def create_job(
         raise RuntimeError("Job insert succeeded but row was not found.")
     return _row_to_job_record(row)
 
-# mark_job_running: updates a job record's status to ```running```  and sets the started_at timestamp if not set.
 def mark_job_running(db_path: str, *, job_id: str) -> None:
+    """Mark a job as running and set started_at if missing.
+
+    Args:
+        db_path: SQLite database path.
+        job_id: Job id to update.
+    """
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             """
@@ -100,13 +121,19 @@ def mark_job_running(db_path: str, *, job_id: str) -> None:
         )
         connection.commit()
 
-# mark_job_success: updates a job record's status to ```success``` and sets the finished_at timestamp.
 def mark_job_success(
     db_path: str,
     *,
     job_id: str,
     payload_json: str | None = None,
 ) -> None:
+    """Mark a job as successful and store optional payload.
+
+    Args:
+        db_path: SQLite database path.
+        job_id: Job id to update.
+        payload_json: Optional payload to store.
+    """
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             """
@@ -121,7 +148,6 @@ def mark_job_success(
         )
         connection.commit()
 
-# mark_job_fail: updates a job record's status to ```fail```, sets the finished_at timestamp, and records an error message.
 def mark_job_fail(
     db_path: str,
     *,
@@ -129,6 +155,14 @@ def mark_job_fail(
     error_message: str,
     payload_json: str | None = None,
 ) -> None:
+    """Mark a job as failed and record an error message.
+
+    Args:
+        db_path: SQLite database path.
+        job_id: Job id to update.
+        error_message: Error message to store.
+        payload_json: Optional payload to store.
+    """
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             """
@@ -143,8 +177,17 @@ def mark_job_fail(
         )
         connection.commit()
 
-# list_jobs: retrieves a list of job records from the ```jobs``` table, optional filtering by document_id and limited in count.
 def list_jobs(db_path: str, *, document_id: str | None = None, limit: int = 50) -> list[JobRecord]:
+    """Retrieve job records, optionally filtered by document id.
+
+    Args:
+        db_path: SQLite database path.
+        document_id: Optional document filter.
+        limit: Max rows to return.
+
+    Returns:
+        Job records.
+    """
     effective_limit = max(1, min(limit, 200))
 
     with sqlite3.connect(db_path) as connection:
@@ -174,13 +217,19 @@ def list_jobs(db_path: str, *, document_id: str | None = None, limit: int = 50) 
 
     return [_row_to_job_record(row) for row in rows]
 
-# replace_document_chunks: deletes existing chunk records for a document, inserts instead new ones based on the provided list of ChunkUpsert objects.
 def replace_document_chunks(
     db_path: str,
     *,
     document_id: str,
     chunks: list[ChunkUpsert],
 ) -> None:
+    """Replace all chunk records for a document.
+
+    Args:
+        db_path: SQLite database path.
+        document_id: Document id whose chunks are replaced.
+        chunks: New chunk records to insert.
+    """
     with sqlite3.connect(db_path) as connection:
         connection.execute("PRAGMA foreign_keys = ON;")
         connection.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
@@ -210,12 +259,20 @@ def replace_document_chunks(
             )
         connection.commit()
 
-# get_chunks_by_ids: retrieves chunk records from the ```chunks``` table based on a list of chunk IDs. Returns a mapping of chunk ID to ChunkLookupRecord.
 def get_chunks_by_ids(
     db_path: str,
     *,
     chunk_ids: list[str],
 ) -> dict[str, ChunkLookupRecord]:
+    """Retrieve chunk records by ids.
+
+    Args:
+        db_path: SQLite database path.
+        chunk_ids: Chunk ids to fetch.
+
+    Returns:
+        Mapping of chunk id to lookup record.
+    """
     if not chunk_ids:
         return {}
 
@@ -240,14 +297,22 @@ def get_chunks_by_ids(
         for row in rows
     }
 
-# search_chunks_lexical: executes a lexical search on the ```chunks_fts``` virtual table using the provided query.
-# Returns a list of LexicalSearchRow with chunk and document info along with the raw BM25 score.
 def search_chunks_lexical(
     db_path: str,
     *,
     query_text: str,
     limit: int,
 ) -> list[LexicalSearchRow]:
+    """Run lexical search against the `chunks_fts` virtual table.
+
+    Args:
+        db_path: SQLite database path.
+        query_text: Raw user query.
+        limit: Max rows to return.
+
+    Returns:
+        Lexical search rows with raw BM25 scores.
+    """
     terms = _extract_fts5_terms(query_text)
     if not terms:
         return []
@@ -269,18 +334,35 @@ def search_chunks_lexical(
 
 
 def normalize_fts5_query(query_text: str) -> str | None:
+    """Normalize raw query text into an FTS5 AND query.
+
+    Args:
+        query_text: Raw query text.
+
+    Returns:
+        FTS5 query string, or None when there are no terms.
+    """
     terms = _extract_fts5_terms(query_text)
     if not terms:
         return None
     return _join_fts5_terms(terms, operator="AND")
 
-# _run_lexical_query: helper to execute a raw SQL query against the chunks_fts virtual table for lexical search. Returns the raw rows for further processing.
 def _run_lexical_query(
     *,
     db_path: str,
     match_query: str,
     limit: int,
 ) -> list[tuple[object, ...]]:
+    """Execute raw FTS5 query and return rows for mapping.
+
+    Args:
+        db_path: SQLite database path.
+        match_query: FTS5 MATCH query.
+        limit: Max rows to return.
+
+    Returns:
+        Raw SQL rows.
+    """
     with sqlite3.connect(db_path) as connection:
         return connection.execute(
             """
@@ -296,18 +378,40 @@ def _run_lexical_query(
             (match_query, limit),
         ).fetchall()
 
-# _extract_fts5_terms: helper to extract searchable terms from a raw query string using a regex.
 def _extract_fts5_terms(query_text: str) -> list[str]:
+    """Extract searchable terms from raw query text.
+
+    Args:
+        query_text: Raw query text.
+
+    Returns:
+        Search terms.
+    """
     return re.findall(r"\w+", query_text, flags=re.UNICODE)
 
-# _join_fts5_terms: helper to join a list of terms into a valid FTS5 MATCH query string with the specified operator (AND/OR).
 def _join_fts5_terms(terms: list[str], *, operator: str) -> str:
+    """Join terms into a valid FTS5 MATCH query string.
+
+    Args:
+        terms: Search terms.
+        operator: FTS5 operator like AND or OR.
+
+    Returns:
+        Joined FTS5 query.
+    """
     return f" {operator} ".join(f'"{term}"' for term in terms)
 
 # separate lookups and upserts for better clarity and separation of functions.
 
-# _row_to_chunk_lookup_record: helper to convert a SQL row tuple into a ChunkLookupRecord dataclass instance.
 def _row_to_chunk_lookup_record(row:  tuple[object, ...]) -> ChunkLookupRecord:
+    """Convert SQL row into a ChunkLookupRecord.
+
+    Args:
+        row: SQL row tuple.
+
+    Returns:
+        Chunk lookup record.
+    """
     return ChunkLookupRecord(
         id=str(row[0]),
         document_id=str(row[1]),
@@ -317,6 +421,14 @@ def _row_to_chunk_lookup_record(row:  tuple[object, ...]) -> ChunkLookupRecord:
     ) 
 
 def _row_to_lexical_search_row(row: tuple[object, ...]) -> LexicalSearchRow:
+    """Convert SQL row into a LexicalSearchRow.
+
+    Args:
+        row: SQL row tuple.
+
+    Returns:
+        Lexical search row.
+    """
     return LexicalSearchRow(
         chunk_id=str(row[0]),
         document_id=str(row[1]),
@@ -326,8 +438,15 @@ def _row_to_lexical_search_row(row: tuple[object, ...]) -> LexicalSearchRow:
         raw_score=float(row[5]),
     )
 
-# _row_to_job_record: helper to convert a SQL row tuple into a JobRecord dataclass instance.
 def _row_to_job_record(row: tuple[object, ...]) -> JobRecord:
+    """Convert SQL row into a JobRecord.
+
+    Args:
+        row: SQL row tuple.
+
+    Returns:
+        Job record.
+    """
     return JobRecord(
         id=str(row[0]),
         job_type=str(row[1]),

@@ -10,10 +10,10 @@ import sqlite3
 from dataclasses import dataclass
 
 
-# DocumentRecord: represents a document metadata record from the `documents` table,
-# includes additional fields for source type, filename, and size.
 @dataclass(slots=True)
 class DocumentRecord:
+    """Document metadata record from the `documents` table."""
+
     id: str
     filename: str
     source_type: str
@@ -24,7 +24,6 @@ class DocumentRecord:
     created_at: str
     updated_at: str
 
-# insert_document: adds a new document record to the `documents` table with the provided metadata.
 def insert_document(
     db_path: str,
     *,
@@ -36,6 +35,21 @@ def insert_document(
     checksum: str,
     status: str = "ready",
 ) -> DocumentRecord:
+    """Add a new document record with provided metadata.
+
+    Args:
+        db_path: SQLite database path.
+        document_id: New document id.
+        filename: Original filename.
+        source_type: Source type like txt, md, or pdf.
+        source_path: Stored file path.
+        size_bytes: File size in bytes.
+        checksum: File checksum.
+        status: Initial document status.
+
+    Returns:
+        Inserted document record.
+    """
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             """
@@ -86,8 +100,15 @@ def insert_document(
         updated_at=row[8],
     )
 
-# list_documents: retrieves all document records from the `documents` table, ordered by date of creation.
 def list_documents(db_path: str) -> list[DocumentRecord]:
+    """Retrieve all document records ordered by creation date.
+
+    Args:
+        db_path: SQLite database path.
+
+    Returns:
+        Document records.
+    """
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute(
             """
@@ -113,13 +134,19 @@ def list_documents(db_path: str) -> list[DocumentRecord]:
         for row in rows
     ]
 
-# update_document_status: updates the status of a document record in the ```documents``` table, id by document_id.
 def update_document_status(
     db_path: str,
     *,
     document_id: str,
     status: str,
 ) -> None:
+    """Update status of a document record by id.
+
+    Args:
+        db_path: SQLite database path.
+        document_id: Document id to update.
+        status: New status value.
+    """
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             """

@@ -17,6 +17,8 @@ DEFAULT_GENERATION_TEMPERATURE = 0.1
 
 @dataclass(slots=True)
 class AnswerGenerationResult:
+    """Generated answer plus prompt and sources used for it."""
+
     answer: str
     prompt: str
     sources: list[RetrievedChunk]
@@ -24,10 +26,11 @@ class AnswerGenerationResult:
 
 @dataclass(slots=True)
 class AnswerGenerator:
+    """Small service that turns retrieved chunks into an answer."""
+
     generation_client: GenerationClient
     temperature: float = DEFAULT_GENERATION_TEMPERATURE
 
-    # generate_answer: select RAG, no-context, or raw-input mode and call the LLM.
     def generate_answer(
         self,
         *,
@@ -35,6 +38,16 @@ class AnswerGenerator:
         sources: list[RetrievedChunk],
         include_context_in_prompt: bool,
     ) -> AnswerGenerationResult:
+        """Select RAG, no-context, or raw-input mode and call the LLM.
+
+        Args:
+            query: User question.
+            sources: Retrieved chunks to ground on.
+            include_context_in_prompt: Whether to include retrieved context.
+
+        Returns:
+            Answer result with final prompt and sources.
+        """
         prompt = _resolve_final_prompt(
             query=query,
             sources=sources,
@@ -49,27 +62,44 @@ class AnswerGenerator:
         return AnswerGenerationResult(answer=answer, prompt=prompt, sources=sources)
 
 
-# resolve_final_prompt: choose the final prompt text from grounded, no-context, or raw-input modes.
 def resolve_final_prompt(
     *,
     query: str,
     sources: list[RetrievedChunk],
     include_context_in_prompt: bool,
 ) -> str:
+    """Choose final prompt text from grounded, no-context, or raw-input modes.
+
+    Args:
+        query: User question.
+        sources: Retrieved chunks.
+        include_context_in_prompt: Whether context should be included.
+
+    Returns:
+        Final prompt text.
+    """
     return _resolve_final_prompt(
         query=query,
         sources=sources,
         include_context_in_prompt=include_context_in_prompt,
     )
 
-# _resolve_final_prompt: internal helper to determine the final prompt text based on if there are retrieved sources
-# and whether the context should be included in the prompt.
 def _resolve_final_prompt(
     *,
     query: str,
     sources: list[RetrievedChunk],
     include_context_in_prompt: bool,
 ) -> str:
+    """Pick final prompt based on sources and context flag.
+
+    Args:
+        query: User question.
+        sources: Retrieved chunks.
+        include_context_in_prompt: Whether context should be included.
+
+    Returns:
+        Final prompt text.
+    """
     if not include_context_in_prompt:
         return query
     if not sources:

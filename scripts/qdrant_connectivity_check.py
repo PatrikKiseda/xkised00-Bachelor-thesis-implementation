@@ -18,8 +18,12 @@ if str(SRC_PATH) not in sys.path:
 from app.core.settings import get_settings
 from app.storage.qdrant_store import QdrantStore
 
-# main: entrypoint to check Qdrant reachability.
 def main() -> int:
+    """Check Qdrant reachability from configured settings.
+
+    Returns:
+        Process exit code.
+    """
     settings = get_settings()
     store = QdrantStore.from_settings(settings)
     status = store.check_connection()

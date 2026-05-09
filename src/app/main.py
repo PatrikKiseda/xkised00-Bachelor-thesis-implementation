@@ -29,21 +29,35 @@ EmbeddingClientFactory = Callable[[Settings], EmbeddingClient]
 GenerationClientFactory = Callable[[Settings], GenerationClient]
 
 
-# create_app: builds the FastAPI app and wires Qdrant startup + health reporting.
 def create_app(
     settings: Settings | None = None,
     store_factory: StoreFactory | None = None,
     embedding_client_factory: EmbeddingClientFactory | None = None,
     generation_client_factory: GenerationClientFactory | None = None,
 ) -> FastAPI:
+    """Build the FastAPI app and wire startup dependencies.
+
+    Args:
+        settings: Optional settings override, mostly useful in tests.
+        store_factory: Optional Qdrant store factory.
+        embedding_client_factory: Optional embedding client factory.
+        generation_client_factory: Optional generation client factory.
+
+    Returns:
+        Configured FastAPI app.
+    """
     resolved_settings = settings or get_settings()
     resolved_store_factory = store_factory or QdrantStore.from_settings
     resolved_embedding_client_factory = embedding_client_factory or build_embedding_client
     resolved_generation_client_factory = generation_client_factory or build_generation_client
 
-    # lifespan: initializes Qdrant store at startup and stores initial reachability state. see https://fastapi.tiangolo.com/advanced/events/#lifespan.
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        """Initialize app state for SQLite, storage, Qdrant, and model clients.
+
+        Args:
+            app: FastAPI app being started.
+        """
         sqlite_db_path = initialize_sqlite_schema(resolved_settings.sqlite_path)
         storage_dir = Path(resolved_settings.storage_dir).expanduser()
         storage_dir.mkdir(parents=True, exist_ok=True)
@@ -67,16 +81,23 @@ def create_app(
     app.include_router(jobs_router)
     app.include_router(query_router)
 
-    # localhost_ui endpoint decorator: serve a simple static HTML page for localhost to the app.
     @app.get("/", response_class=HTMLResponse)
     def localhost_ui() -> HTMLResponse:
+        """Serve the simple local HTML UI.
+
+        Returns:
+            HTML response with the local UI file.
+        """
         ui_path = Path(__file__).resolve().parent / "ui" / "index.html"
         return HTMLResponse(content=ui_path.read_text(encoding="utf-8"))
 
-    # health endpoint decorator: exposing runtime health snapshot for app + Qdrant.
     @app.get("/api/health")
-    # health: returns current Qdrant reachability and startup-time reachability details.
     def health() -> dict[str, object]:
+        """Return current Qdrant and SQLite health snapshot.
+
+        Returns:
+            Health response dict for the API.
+        """
         current_status = app.state.qdrant_store.check_connection()
         status = "ok" if current_status.reachable else "degraded"
 

@@ -9,8 +9,16 @@ from __future__ import annotations
 from app.retrieval.service import RetrievedChunk
 
 
-# build_grounded_answer_prompt: create a grounded prompt from the user query and retrieved chunks.
 def build_grounded_answer_prompt(*, query: str, sources: list[RetrievedChunk]) -> str:
+    """Create a grounded prompt from the user query and retrieved chunks.
+
+    Args:
+        query: User question.
+        sources: Retrieved chunks to include.
+
+    Returns:
+        Prompt text for grounded answer generation.
+    """
     source_header = _build_source_header(sources=sources)
     return (
         "You are a retrieval-grounded assistant.\n"
@@ -24,8 +32,15 @@ def build_grounded_answer_prompt(*, query: str, sources: list[RetrievedChunk]) -
     )
 
 
-# build_no_context_prompt: create a simple prompt for the case where retrieval was enabled but yielded no hits.
 def build_no_context_prompt(*, query: str) -> str:
+    """Create prompt for retrieval mode when no hits were found.
+
+    Args:
+        query: User question.
+
+    Returns:
+        Prompt text for no-context answer generation.
+    """
     return (
         "You are a helpful assistant.\n"
         "No retrieved context was available for this question, so answer without citations and make it clear there is no retrieved context to ground on.\n"
@@ -34,8 +49,15 @@ def build_no_context_prompt(*, query: str) -> str:
         "Answer:"
     )
 
-# _build_source_header: helper to format retrieved sources into a string for the prompt.
 def _build_source_header(*, sources: list[RetrievedChunk]) -> str:
+    """Format retrieved sources into a string for the prompt.
+
+    Args:
+        sources: Retrieved chunks to format.
+
+    Returns:
+        Source block text.
+    """
     return "\n\n".join(
         (
             f"[{source.source_id}] filename={source.filename or 'unknown'} "

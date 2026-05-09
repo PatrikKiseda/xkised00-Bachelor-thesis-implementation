@@ -20,4 +20,4 @@ app-run:
 	uv run uvicorn app.main:app --app-dir src --reload
 
 test:
-	uv run python -m unittest discover -s tests -p "test_*.py"
+	uv run python -m unittest discover -v -s tests -p "test_*.py"

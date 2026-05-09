@@ -11,41 +11,63 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
-# EmbeddingItemResult: normalized per-input embedding outcome, including failures.
 @dataclass(slots=True)
 class EmbeddingItemResult:
+    """Normalized per-input embedding outcome, including failures."""
+
     index: int
     text: str
     vector: list[float] | None
     error: str | None = None
 
-    # is_success: helper to keep success checks readable in pipeline code.
     @property
     def is_success(self) -> bool:
+        """Check if this item has a usable vector.
+
+        Returns:
+            True when there is no error and vector exists.
+        """
         return self.error is None and self.vector is not None
 
-# EmbeddingBatchResult: batch-level result used by indexing for stats and error handling.
 @dataclass(slots=True)
 class EmbeddingBatchResult:
+    """Batch-level result used by indexing for stats and error handling."""
+
     provider: str
     model: str
     items: list[EmbeddingItemResult]
 
-    # success_count: number of chunks that produced a usable vector.
     @property
     def success_count(self) -> int:
+        """Count chunks that produced a usable vector.
+
+        Returns:
+            Number of successful embedding items.
+        """
         return sum(1 for item in self.items if item.is_success)
 
-    # failed_count: number of chunks that failed embedding generation.
     @property
     def failed_count(self) -> int:
+        """Count chunks that failed embedding generation.
+
+        Returns:
+            Number of failed embedding items.
+        """
         return len(self.items) - self.success_count
 
-# EmbeddingClient: adapter interface for all embedding providers.
 class EmbeddingClient(Protocol):
+    """Adapter interface for all embedding providers."""
+
     provider: str
     model: str
 
-    # embed_texts: create embeddings for the given text list in index-aligned order.
     def embed_texts(self, texts: list[str]) -> EmbeddingBatchResult:
+        """Create embeddings for texts in index-aligned order.
+
+        Args:
+            texts: Text inputs to embed.
+
+        Returns:
+            Batch result with one item per input text.
+        """
         ...

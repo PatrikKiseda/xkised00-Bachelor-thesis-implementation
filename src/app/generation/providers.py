@@ -15,14 +15,23 @@ from app.core.settings import Settings
 from app.generation.adapter import GenerationClient
 
 
-# LiteLLMGenerationClient: simple GenerationClient implementation using LiteLLM for text generation.
 @dataclass(slots=True)
 class LiteLLMGenerationClient:
+    """Simple GenerationClient implementation using LiteLLM for text generation."""
+
     model: str
     api_key: str | None
 
-    # generate_text: run a single-prompt text completion through LiteLLM.
     def generate_text(self, *, prompt: str, temperature: float) -> str:
+        """Run a single-prompt text completion through LiteLLM.
+
+        Args:
+            prompt: Prompt text to send.
+            temperature: Sampling temperature.
+
+        Returns:
+            Generated text content.
+        """
         response = litellm_completion(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
@@ -37,28 +46,57 @@ class LiteLLMGenerationClient:
         return content
 
 
-# build_generation_client: default provider wiring for the application runtime.
 def build_generation_client(settings: Settings) -> GenerationClient:
+    """Build default generation client for the app runtime.
+
+    Args:
+        settings: Runtime settings with model and API key.
+
+    Returns:
+        Configured generation client.
+    """
     return LiteLLMGenerationClient(
         model=settings.litellm_model,
         api_key=settings.openai_api_key,
     )
 
 
-# _resolve_temperature: GPT5.x <-Current provider rejects anything else than the default temperature through LiteLLM.
 def _resolve_temperature(*, model: str, temperature: float) -> float:
+    """Resolve temperature, with GPT-5 variants forced to default.
+
+    Args:
+        model: Model name.
+        temperature: Requested temperature.
+
+    Returns:
+        Temperature value safe for the provider.
+    """
     if _requires_default_temperature(model):
         return 1.0
     return temperature
 
-# _requires_default_temperature: extra check if the model is a GPT5.x variant that requires the default temperature, based on the model name.
 def _requires_default_temperature(model: str) -> bool:
+    """Check if the model is a GPT-5 variant that needs default temperature.
+
+    Args:
+        model: Model name, maybe with provider prefix.
+
+    Returns:
+        True when the model should use default temperature.
+    """
     providerless_model = model.split("/", maxsplit=1)[-1].lower()
     return providerless_model.startswith("gpt-5") and not providerless_model.startswith("gpt-5.1")
 
 
-# Helper functions to extract text content from the LiteLLM response, which may have different structures depending on the model and response format.
 def _extract_message_text(response: Any) -> str:
+    """Extract text content from a LiteLLM response.
+
+    Args:
+        response: LiteLLM completion response.
+
+    Returns:
+        Stripped generated text.
+    """
     choices = getattr(response, "choices", None)
     if choices is None and isinstance(response, dict):
         choices = response.get("choices")
@@ -77,8 +115,15 @@ def _extract_message_text(response: Any) -> str:
 
     raise RuntimeError("Generation API response did not include text content.")
 
-# _extract_content_part_text: helper to extract text from a part of a message content.
 def _extract_content_part_text(part: Any) -> str:
+    """Extract text from one content part.
+
+    Args:
+        part: Message content part.
+
+    Returns:
+        Text value, or empty string for unsupported parts.
+    """
     part_type = _read_field(part, "type")
     if part_type not in {None, "text"}:
         return ""
@@ -88,8 +133,16 @@ def _extract_content_part_text(part: Any) -> str:
         return text_value
     return ""
 
-# _read_field: helper to read a field from an object that may be a dict or have attributes, None if not found.
 def _read_field(item: Any, field_name: str) -> Any:
+    """Read a field from dict-like or object-like items.
+
+    Args:
+        item: Item to inspect.
+        field_name: Field name to read.
+
+    Returns:
+        Field value, or None when it is missing.
+    """
     if isinstance(item, dict):
         return item.get(field_name)
     return getattr(item, field_name, None)

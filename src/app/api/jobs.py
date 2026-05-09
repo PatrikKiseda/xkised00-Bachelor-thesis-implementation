@@ -12,13 +12,22 @@ from app.storage.indexing_repository import list_jobs
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
-# get_jobs: API endpoint to retrieve a list of indexing jobs, with optional filters for document_id..
 @router.get("")
 def get_jobs(
     request: Request,
     document_id: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
 ) -> dict[str, list[dict[str, object | None]]]:
+    """Retrieve indexing jobs, optionally filtered by document id.
+
+    Args:
+        request: FastAPI request with app state.
+        document_id: Optional document id filter.
+        limit: Maximum number of jobs to return.
+
+    Returns:
+        API response with job records.
+    """
     records = list_jobs(
         request.app.state.sqlite_db_path,
         document_id=document_id,

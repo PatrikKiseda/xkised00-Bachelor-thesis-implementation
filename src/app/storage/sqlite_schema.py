@@ -9,10 +9,6 @@ import sqlite3
 from pathlib import Path
 
 
-# initialize_sqlite_schema: creates required metadata tables and FTS5 index placeholders. 
-# this is useful for adding information linking of the retrieved document/chunk to the 
-# location of the original document, and for enabling local lexical search capabilities in the future.
-
 # DOCUMENTS_TABLE_ADDITIONAL_COLUMNS: extra metadata fields for documents.
 DOCUMENTS_TABLE_ADDITIONAL_COLUMNS: tuple[tuple[str, str], ...] = (
     ("source_type", "TEXT"),
@@ -21,6 +17,14 @@ DOCUMENTS_TABLE_ADDITIONAL_COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 def initialize_sqlite_schema(db_path: str) -> Path:
+    """Create required metadata tables and FTS5 index placeholders.
+
+    Args:
+        db_path: SQLite database path.
+
+    Returns:
+        Resolved database path.
+    """
     resolved_db_path = Path(db_path).expanduser()
     resolved_db_path.parent.mkdir(parents=True, exist_ok=True)
 

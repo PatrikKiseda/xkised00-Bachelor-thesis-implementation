@@ -15,8 +15,9 @@ DEFAULT_CHUNK_OVERLAP_CHARS = 150
 # Default environment file path. 
 DEFAULT_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
-# Settings: typed config model loaded from .env.
 class Settings(BaseSettings):
+    """Typed config model loaded from `.env`."""
+
     # App runtime config (defaults considered safe for local development).
     app_name: str = "rag-thesis-app"
     app_env: str = "dev"
@@ -52,7 +53,6 @@ class Settings(BaseSettings):
     )
 
     @classmethod
-    # settings_customise_sources: use this repo's .env over inherited shell env for prototype isolation.
     def settings_customise_sources(
         cls,
         settings_cls: type[BaseSettings],
@@ -61,12 +61,31 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Use this repo's `.env` over inherited shell env for prototype isolation.
+
+        Args:
+            settings_cls: Pydantic settings class being built.
+            init_settings: Values passed directly during construction.
+            env_settings: Values from the shell environment.
+            dotenv_settings: Values from the repo-local `.env`.
+            file_secret_settings: Values from secret files.
+
+        Returns:
+            Settings sources in the order they should be used.
+        """
         return init_settings, dotenv_settings, env_settings, file_secret_settings
 
-    # qdrant_url validator: ensures URL is explicitly HTTP(S).
     @field_validator("qdrant_url")
     @classmethod
     def validate_qdrant_url(cls, value: str) -> str:
+        """Make sure Qdrant URL is explicitly HTTP(S).
+
+        Args:
+            value: Raw configured URL.
+
+        Returns:
+            The stripped URL.
+        """
         normalized = value.strip()
         if not normalized:
             raise ValueError("QDRANT_URL cannot be empty.")
@@ -74,39 +93,66 @@ class Settings(BaseSettings):
             raise ValueError("QDRANT_URL must start with http:// or https://.")
         return normalized
 
-    # timeout validator: enforces a positive timeout value.
     @field_validator("qdrant_timeout_seconds")
     @classmethod
     def validate_qdrant_timeout(cls, value: float) -> float:
+        """Make sure the Qdrant timeout is positive.
+
+        Args:
+            value: Timeout in seconds.
+
+        Returns:
+            The validated timeout.
+        """
         if value <= 0:
             raise ValueError("QDRANT_TIMEOUT_SECONDS must be greater than 0.")
         return value
 
-    # vector size validator: enforce deterministic, dense vector schema.
     @field_validator("qdrant_vector_size")
     @classmethod
     def validate_qdrant_vector_size(cls, value: int) -> int:
+        """Make sure vector size can define a deterministic dense schema.
+
+        Args:
+            value: Configured vector size.
+
+        Returns:
+            The validated vector size.
+        """
         if value <= 0:
             raise ValueError("QDRANT_VECTOR_SIZE must be greater than 0.")
         return value
 
-    # chunk size validator: ensures chunk size is a positive integer.
     @field_validator("chunk_size_chars")
     @classmethod
     def validate_chunk_size_chars(cls, value: int) -> int:
+        """Make sure chunk size is a positive integer.
+
+        Args:
+            value: Configured chunk size in chars.
+
+        Returns:
+            The validated chunk size.
+        """
         if value <= 0:
             raise ValueError("CHUNK_SIZE_CHARS must be greater than 0.")
         return value
 
-    # chunk overlap validator: ensures chunk overlap is non-negative and reasonable compared to size of chunk.
     @field_validator("chunk_overlap_chars")
     @classmethod
     def validate_chunk_overlap_chars_non_negative(cls, value: int) -> int:
+        """Make sure chunk overlap is not negative.
+
+        Args:
+            value: Configured overlap in chars.
+
+        Returns:
+            The validated overlap.
+        """
         if value < 0:
             raise ValueError("CHUNK_OVERLAP_CHARS must be greater than or equal to 0.")
         return value
     
-    # critical-string validator: rejects blank critical values for required config keys.
     @field_validator(
         "qdrant_collection",
         "litellm_model",
@@ -115,17 +161,28 @@ class Settings(BaseSettings):
         "sqlite_path",
         "storage_dir",
     )
-    # validate_non_empty_critical_strings: makes sure string config values are not empty or just whitespace.
     @classmethod
     def validate_non_empty_critical_strings(cls, value: str) -> str:
+        """Make sure critical string config values are not blank.
+
+        Args:
+            value: Raw string value.
+
+        Returns:
+            The stripped non-empty string.
+        """
         normalized = value.strip()
         if not normalized:
             raise ValueError("Critical config value cannot be empty.")
         return normalized
 
-    # model-level validator: enforces provider-dependent API key requirements.
     @model_validator(mode="after")
     def validate_provider_dependencies(self) -> "Settings":
+        """Check settings that depend on each other.
+
+        Returns:
+            The validated settings object.
+        """
         if self.embedding_api_enabled and self.embedding_provider.lower() == "openai":
             if not self.openai_api_key or not self.openai_api_key.strip():
                 raise ValueError(
@@ -136,8 +193,11 @@ class Settings(BaseSettings):
             raise ValueError("CHUNK_OVERLAP_CHARS must be smaller than CHUNK_SIZE_CHARS.")
         return self
 
-# get_settings decorator: cache one Settings instance for repeated app access.  https://docs.python.org/3/library/functools.html#functools.lru_cache for details.
 @lru_cache(maxsize=1)
-# get_settings: shared accessor for settings between scripts/app
 def get_settings() -> Settings:
+    """Shared cached accessor for settings between scripts and app.
+
+    Returns:
+        Loaded settings instance.
+    """
     return Settings()

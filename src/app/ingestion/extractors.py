@@ -19,6 +19,8 @@ class ExtractionError(ValueError):
 
 @dataclass(slots=True)
 class ExtractionResult:
+    """Extracted text plus detected source type."""
+
     source_type: str
     text: str
 
@@ -31,13 +33,29 @@ SOURCE_TYPE_BY_EXTENSION: dict[str, str] = {
 
 
 def normalize_text(text: str) -> str:
+    """Normalize newlines and trim trailing whitespace per line.
+
+    Args:
+        text: Raw extracted text.
+
+    Returns:
+        Cleaned text.
+    """
     # Normalization of line endings and trim of trailing whitespace per line.
     normalized_newlines = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = [line.rstrip() for line in normalized_newlines.split("\n")]
     return "\n".join(lines).strip()
 
-    # extract_text: main entry point for file text extraction, support for PDF and UTF-8 text files.
 def extract_text(filename: str, content: bytes) -> ExtractionResult:
+    """Extract text from supported PDF and UTF-8 text files.
+
+    Args:
+        filename: Original filename used to detect file type.
+        content: Uploaded file bytes.
+
+    Returns:
+        Extracted and normalized text result.
+    """
     extension = Path(filename).suffix.lower()
     source_type = SOURCE_TYPE_BY_EXTENSION.get(extension)
     if source_type is None:
