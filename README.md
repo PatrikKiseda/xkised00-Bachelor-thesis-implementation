@@ -31,12 +31,14 @@ Currently, Docker is primarily for services (especially the vector database).
 
 - `.env.example` - example environment variables for local development
 - `docker-compose.yml` - local infrastructure services (Qdrant)
+- `docker-compose.deploy.yml` - lightweight deployment stack for the app, Qdrant, and Caddy
 - `Makefile` - common local commands (run, test, compose, etc.)
 - `pyproject.toml` - Python project metadata and dependencies managed with `uv`
 - `uv.lock` - locked dependency versions for reproducible environments
 - `src/` - application source code
 - `tests/` - tests 
 - `scripts/` - helper scripts 
+- `deploy/` - small deployment-only files, currently Caddy configuration
 - `docs/` - technical notes /  implementation documentation
 - `data/` - local data (uploads, SQLite DB, temporary files)
 
@@ -322,6 +324,58 @@ Notes:
    - `make app-run`
 6. Open the localhost UI:
    - `http://127.0.0.1:8000/`
+
+## Deployment
+
+The deployment stack is intentionally small and standalone:
+
+- `cloudflared` opens the Cloudflare Tunnel
+- `qdrant` stores vectors
+- `app` runs the FastAPI application
+- `web` runs Caddy for Basic Auth and reverse proxying to the app
+
+Prepare environment:
+
+```bash
+cp .env.example .env
+docker run --rm caddy:2.8-alpine caddy hash-password --plaintext 'your-password'
+```
+
+Then set at least these values in `.env`:
+
+```dotenv
+OPENAI_API_KEY=<real-provider-key>
+CLOUDFLARE_TUNNEL_TOKEN=<cloudflare-tunnel-token>
+BASIC_AUTH_USER=<web-username>
+BASIC_AUTH_HASH=<hash-from-caddy>
+WEB_BIND_ADDRESS=127.0.0.1
+WEB_PORT=8090
+```
+
+Start the deployment:
+
+```bash
+docker compose -f docker-compose.deploy.yml up -d --build
+```
+
+Verify it locally:
+
+```bash
+curl -u "user:your-password" http://127.0.0.1:8090/api/health
+```
+
+Set up the Cloudflare Tunnel:
+
+1. In Cloudflare Zero Trust, create a new Cloudflare Tunnel.
+2. Choose Docker as the connector environment and copy only the token from the `cloudflared ... --token <token>` command.
+3. Put that token into `.env` as `CLOUDFLARE_TUNNEL_TOKEN`.
+4. Add a public hostname route on the new tunnel:
+   - hostname: `bp.patrikkiseda.com`
+   - service type: `HTTP`
+   - service URL: `http://web:80`
+5. Make sure Cloudflare creates or updates the proxied DNS record for that hostname.
+
+Caddy inside this stack still keeps Basic Auth in front of the app.
 
 ### Quick API examples
 

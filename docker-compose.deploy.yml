@@ -1,0 +1,90 @@
+# Author: Patrik Kiseda
+# File: docker-compose.deploy.yml
+# Description: Minimal deployment for the thesis web app.
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.3.0
+    restart: unless-stopped
+    depends_on:
+      - web
+    # The Cloudflare dashboard routes the public hostname to http://web:80.
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 45s
+    depends_on:
+      - qdrant
+    environment:
+      # Production deployment listens inside Docker. The public contact is handled by Caddy.
+      APP_ENV: prod
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # The deployed app talks to the deployed Qdrant container.
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-documents}
+      QDRANT_TIMEOUT_SECONDS: ${QDRANT_TIMEOUT_SECONDS:-3.0}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+
+      # Keep mutable runtime data outside the image.
+      SQLITE_PATH: /data/app.db
+      STORAGE_DIR: /data/uploads
+
+      CHUNK_SIZE_CHARS: ${CHUNK_SIZE_CHARS:-1000}
+      CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-150}
+      QDRANT_VECTOR_SIZE: ${QDRANT_VECTOR_SIZE:-1536}
+
+      LITELLM_MODEL: ${LITELLM_MODEL:-openai/gpt-5.4-mini}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_API_ENABLED: ${EMBEDDING_API_ENABLED:-true}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env}
+    volumes:
+      - app_data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import json; from urllib.request import urlopen; payload = json.load(urlopen('http://127.0.0.1:8000/api/health')); raise SystemExit(0 if payload.get('status') == 'ok' else 1)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+
+  web:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      # Caddy needs a username and a Caddy bcrypt hash(password).
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?Set BASIC_AUTH_USER in .env}
+      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH:?Set BASIC_AUTH_HASH in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      # Local check port. Cloudflare reaches this service through Docker networking.
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8090}:80"
+
+volumes:
+  qdrant_storage:
+  app_data:
+  caddy_data:
+  caddy_config:
