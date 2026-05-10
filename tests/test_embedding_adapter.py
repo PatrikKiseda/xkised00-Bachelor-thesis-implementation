@@ -2,18 +2,18 @@
 Author: Patrik Kiseda
 File: tests/test_embedding_adapter.py
 Description: Unit tests for embedding adapter registry and response normalization.
+
+Provider selection is tested with local/deterministic settings, while LiteLLM
+embedding calls are patched. This keeps the suite API-free but still checks the
+response mapping and failure behavior.
 """
 
 from __future__ import annotations
 
-import sys
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-from app.core.settings import Settings
+from helpers import build_settings
 from app.embeddings.providers import (
     DeterministicEmbeddingClient,
     OpenAIEmbeddingClient,
@@ -21,27 +21,12 @@ from app.embeddings.providers import (
 )
 
 
-# _build_settings: helper to create a validated Settings payload for embedding tests.
-def _build_settings(**overrides: object) -> Settings:
-    payload = {
-        "qdrant_url": "http://127.0.0.1:6333",
-        "qdrant_collection": "documents",
-        "qdrant_vector_size": 8,
-        "litellm_model": "openai/gpt-4o-mini",
-        "embedding_provider": "openai",
-        "embedding_model": "text-embedding-3-small",
-        "openai_api_key": "test-key",
-        "embedding_api_enabled": True,
-    }
-    payload.update(overrides)
-    return Settings(**payload)
-
-
-# TestEmbeddingAdapter: validates provider selection and normalized embedding outcomes.
 class TestEmbeddingAdapter(unittest.TestCase):
-    # test_registry_returns_deterministic_client_when_api_disabled: runtime test mode should avoid API calls.
+    """Provider registry and embedding result normalization tests."""
+
     def test_registry_returns_deterministic_client_when_api_disabled(self) -> None:
-        settings = _build_settings(
+        """API-disabled mode should use deterministic local embeddings."""
+        settings = build_settings(
             embedding_provider="local",
             embedding_api_enabled=False,
             openai_api_key=None,
@@ -55,18 +40,26 @@ class TestEmbeddingAdapter(unittest.TestCase):
         self.assertEqual(result.failed_count, 0)
         self.assertEqual(len(result.items[0].vector or []), 8)
 
-    # test_registry_rejects_unsupported_provider_in_api_mode: API mode must fail on unknown providers.
     def test_registry_rejects_unsupported_provider_in_api_mode(self) -> None:
-        settings = _build_settings(embedding_provider="local", embedding_api_enabled=True)
+        """API mode should reject providers without a real adapter."""
+        settings = build_settings(
+            embedding_provider="local",
+            embedding_api_enabled=True,
+            openai_api_key="test-key",
+        )
 
         with self.assertRaises(ValueError) as ctx:
             build_embedding_client(settings)
 
         self.assertIn("Unsupported EMBEDDING_PROVIDER='local'", str(ctx.exception))
 
-    # test_openai_client_maps_successful_response: verifies index-aligned vector mapping from LiteLLM payload.
     def test_openai_client_maps_successful_response(self) -> None:
-        settings = _build_settings()
+        """OpenAI adapter should map LiteLLM vectors back by input index."""
+        settings = build_settings(
+            embedding_provider="openai",
+            embedding_api_enabled=True,
+            openai_api_key="test-key",
+        )
         client = build_embedding_client(settings)
         self.assertIsInstance(client, OpenAIEmbeddingClient)
 
@@ -84,8 +77,8 @@ class TestEmbeddingAdapter(unittest.TestCase):
         self.assertEqual(result.items[0].vector, [0.1, 0.2, 0.3])
         self.assertEqual(result.items[1].vector, [0.4, 0.5, 0.6])
 
-    # test_openai_client_returns_per_item_errors_on_request_failure: failed API call should mark all items as failed.
     def test_openai_client_returns_per_item_errors_on_request_failure(self) -> None:
+        """Embedding request failure should become per-item errors."""
         client = OpenAIEmbeddingClient(
             provider="openai",
             model="text-embedding-3-small",

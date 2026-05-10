@@ -2,12 +2,15 @@
 Author: Patrik Kiseda
 File: tests/test_settings.py
 Description: Unit tests for .env loading and critical config validation behavior.
+
+These tests intentionally construct Settings from temporary .env files and
+patched environments. They verify precedence, required fields, provider
+dependencies, and numeric chunk/vector validation without starting the app.
 """
 
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,8 +18,7 @@ from unittest.mock import patch
 
 from pydantic import ValidationError
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
+import helpers
 from app.core.settings import (
     DEFAULT_CHUNK_OVERLAP_CHARS,
     DEFAULT_CHUNK_SIZE_CHARS,
@@ -24,8 +26,8 @@ from app.core.settings import (
 )
 
 
-# _write_env_file: helper that writes temporary .env contents for settings tests.
 def _write_env_file(content: str) -> Path:
+    """Write temporary .env contents and return the file path."""
     tmp = tempfile.NamedTemporaryFile("w", delete=False, suffix=".env", encoding="utf-8")
     tmp.write(content)
     tmp.flush()
@@ -33,10 +35,11 @@ def _write_env_file(content: str) -> Path:
     return Path(tmp.name)
 
 
-# TestSettings: verifies config loading and clear failures for invalid/missing critical values.
 class TestSettings(unittest.TestCase):
-    # test_loads_values_from_env_file: ensures settings are read from provided .env file.
+    """Settings loading and validation tests."""
+
     def test_loads_values_from_env_file(self) -> None:
+        """Settings should load provided .env values and runtime defaults."""
         env_file = _write_env_file(
             "\n".join(
                 [
@@ -64,8 +67,8 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(settings.chunk_size_chars, DEFAULT_CHUNK_SIZE_CHARS)
         self.assertEqual(settings.chunk_overlap_chars, DEFAULT_CHUNK_OVERLAP_CHARS)
 
-    # test_env_file_overrides_inherited_environment: repo-local .env should win over stray shell exports.
     def test_env_file_overrides_inherited_environment(self) -> None:
+        """Repo-local env file values should win over inherited shell env."""
         env_file = _write_env_file(
             "\n".join(
                 [
@@ -85,8 +88,8 @@ class TestSettings(unittest.TestCase):
 
         self.assertEqual(settings.openai_api_key, "real-from-env-file")
 
-    # test_missing_critical_fields_fail_clearly: missing required keys should trigger validation errors.
     def test_missing_critical_fields_fail_clearly(self) -> None:
+        """Missing required config keys should produce clear validation errors."""
         env_file = _write_env_file("QDRANT_URL=http://127.0.0.1:6333")
 
         with patch.dict(os.environ, {}, clear=True):
@@ -100,8 +103,8 @@ class TestSettings(unittest.TestCase):
         self.assertIn("embedding_provider", error_text)
         self.assertIn("embedding_model", error_text)
 
-    # test_invalid_critical_values_fail_clearly: malformed URL and non-positive timeout should fail.
     def test_invalid_critical_values_fail_clearly(self) -> None:
+        """Malformed URL and non-positive timeout should fail validation."""
         env_file = _write_env_file(
             "\n".join(
                 [
@@ -124,8 +127,8 @@ class TestSettings(unittest.TestCase):
         self.assertIn("QDRANT_URL must start with http:// or https://.", error_text)
         self.assertIn("QDRANT_TIMEOUT_SECONDS must be greater than 0.", error_text)
 
-    # test_openai_provider_requires_api_key: provider-specific dependency should fail without key.
     def test_openai_provider_requires_api_key(self) -> None:
+        """OpenAI embedding provider should require an API key in API mode."""
         env_file = _write_env_file(
             "\n".join(
                 [
@@ -148,8 +151,8 @@ class TestSettings(unittest.TestCase):
             str(ctx.exception),
         )
 
-    # test_openai_without_key_is_allowed_when_api_mode_disabled: runtime test mode must bypass API-key requirement.
     def test_openai_without_key_is_allowed_when_api_mode_disabled(self) -> None:
+        """Disabling embedding API should bypass provider API-key checks."""
         env_file = _write_env_file(
             "\n".join(
                 [
@@ -169,8 +172,8 @@ class TestSettings(unittest.TestCase):
 
         self.assertFalse(settings.embedding_api_enabled)
 
-    # test_sqlite_path_cannot_be_blank: sqlite path must reject empty values.
     def test_sqlite_path_cannot_be_blank(self) -> None:
+        """SQLite path should reject blank strings."""
         env_file = _write_env_file(
             "\n".join(
                 [
@@ -191,8 +194,8 @@ class TestSettings(unittest.TestCase):
 
         self.assertIn("sqlite_path", str(ctx.exception))
 
-    # test_storage_dir_cannot_be_blank: storage dir must reject empty values.
     def test_storage_dir_cannot_be_blank(self) -> None:
+        """Storage directory should reject blank strings."""
         env_file = _write_env_file(
             "\n".join(
                 [
@@ -214,8 +217,8 @@ class TestSettings(unittest.TestCase):
 
         self.assertIn("storage_dir", str(ctx.exception))
 
-    # test_chunk_overlap_must_be_smaller_than_chunk_size: invalid overlap-size relation should fail.
     def test_chunk_overlap_must_be_smaller_than_chunk_size(self) -> None:
+        """Chunk overlap should be smaller than chunk size."""
         env_file = _write_env_file(
             "\n".join(
                 [
@@ -239,8 +242,8 @@ class TestSettings(unittest.TestCase):
 
         self.assertIn("CHUNK_OVERLAP_CHARS must be smaller than CHUNK_SIZE_CHARS.", str(ctx.exception))
 
-    # test_chunk_overlap_cannot_be_negative: chunk overlap must reject negative values.
     def test_chunk_overlap_cannot_be_negative(self) -> None:
+        """Chunk overlap should reject negative values."""
         env_file = _write_env_file(
             "\n".join(
                 [
@@ -264,8 +267,8 @@ class TestSettings(unittest.TestCase):
 
         self.assertIn("CHUNK_OVERLAP_CHARS must be greater than or equal to 0.", str(ctx.exception))
 
-    # test_qdrant_vector_size_must_be_positive: deterministic dense schema must reject non-positive sizes.
     def test_qdrant_vector_size_must_be_positive(self) -> None:
+        """Qdrant vector size should reject non-positive values."""
         env_file = _write_env_file(
             "\n".join(
                 [

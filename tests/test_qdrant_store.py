@@ -2,67 +2,53 @@
 Author: Patrik Kiseda
 File: tests/test_qdrant_store.py
 Description: Unit tests for QdrantStore connectivity, dense upsert, and dense search mapping.
+
+All Qdrant interactions are fake in-memory clients. The tests validate wrapper
+behavior, client construction arguments, collection size checks, payload mapping,
+and dense-hit normalization without needing a running Qdrant container.
 """
 
 from __future__ import annotations
 
-import sys
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from qdrant_client import models
 
-# sys.path adjustment: allows test imports from src without package setup.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-from app.core.settings import Settings
+from helpers import build_settings
 from app.storage.qdrant_store import ChunkVector, QdrantStore
 
 
-# _build_settings: creates a validated baseline settings object for tests.
-def _build_settings(**overrides: object) -> Settings:
-    payload = {
-        "qdrant_url": "http://127.0.0.1:6333",
-        "qdrant_collection": "documents",
-        "qdrant_vector_size": 8,
-        "litellm_model": "openai/gpt-4o-mini",
-        "embedding_provider": "local",
-        "embedding_model": "text-embedding-3-small",
-    }
-    payload.update(overrides)
-    return Settings(**payload)
-
-
-# _WorkingClient: test double that simulates successful Qdrant calls.
 class _WorkingClient:
+    """In-memory Qdrant client fake for successful wrapper paths."""
+
     def __init__(self) -> None:
+        """Initialize default vector schema and recorded upserts."""
         self._vectors = models.VectorParams(size=8, distance=models.Distance.COSINE)
         self.created = False
         self.upsert_calls: list[tuple[str, list[models.PointStruct], bool]] = []
 
-    # get_collections: fake success path for connection checks.
     def get_collections(self) -> object:
+        """Pretend Qdrant collection listing succeeds."""
         return object()
 
-    # get_collection: returns in-memory collection info payload.
     def get_collection(self, collection_name: str) -> object:
+        """Return a minimal collection info-like object."""
         return SimpleNamespace(
             config=SimpleNamespace(params=SimpleNamespace(vectors=self._vectors))
         )
 
-    # create_collection: toggles creation marker and stores vectors config.
     def create_collection(
         self,
         *,
         collection_name: str,
         vectors_config: models.VectorParams,
     ) -> None:
+        """Record that the collection was created with the given schema."""
         self.created = True
         self._vectors = vectors_config
 
-    # upsert: record points for assertions.
     def upsert(
         self,
         *,
@@ -70,9 +56,9 @@ class _WorkingClient:
         points: list[models.PointStruct],
         wait: bool,
     ) -> None:
+        """Record upsert arguments for payload assertions."""
         self.upsert_calls.append((collection_name, points, wait))
 
-    # query_points: returns deterministic dense hit for mapping checks.
     def query_points(
         self,
         *,
@@ -82,6 +68,7 @@ class _WorkingClient:
         with_payload: bool,
         with_vectors: bool,
     ) -> object:
+        """Return one deterministic scored point for dense mapping checks."""
         assert collection_name == "documents"
         assert len(query) == 8
         assert limit == 3
@@ -103,34 +90,42 @@ class _WorkingClient:
         )
 
 
-# _BrokenClient: test double that simulates failed Qdrant calls.
 class _BrokenClient:
+    """Qdrant client fake that raises during connection checks."""
+
     def get_collections(self) -> object:
+        """Simulate a connection failure."""
         raise RuntimeError("connection refused")
 
 
-# _MissingCollectionClient: get_collection fails so store should create collection.
 class _MissingCollectionClient(_WorkingClient):
+    """Working client variant where get_collection reports missing collection."""
+
     def get_collection(self, collection_name: str) -> models.CollectionInfo:
+        """Force ensure_collection down the create_collection path."""
         raise RuntimeError("collection not found")
 
 
-# TestQdrantStore: verifies wrapper behavior and client construction settings.
 class TestQdrantStore(unittest.TestCase):
+    """QdrantStore wrapper behavior tests around client calls and mapping."""
+
     def test_check_connection_success(self) -> None:
+        """check_connection should return reachable when client call succeeds."""
         store = QdrantStore(client=_WorkingClient())  # type: ignore[arg-type]
         status = store.check_connection()
         self.assertTrue(status.reachable)
         self.assertIsNone(status.error)
 
     def test_check_connection_failure(self) -> None:
+        """check_connection should return unreachable instead of raising."""
         store = QdrantStore(client=_BrokenClient())  # type: ignore[arg-type]
         status = store.check_connection()
         self.assertFalse(status.reachable)
         self.assertIn("connection refused", status.error or "")
 
     def test_from_settings_uses_expected_client_configuration(self) -> None:
-        settings = _build_settings(
+        """from_settings should pass URL, API key, and timeout to QdrantClient."""
+        settings = build_settings(
             qdrant_url="http://qdrant.local:6333",
             qdrant_api_key="secret",
             qdrant_timeout_seconds=9.5,
@@ -146,6 +141,7 @@ class TestQdrantStore(unittest.TestCase):
         )
 
     def test_ensure_collection_creates_when_missing(self) -> None:
+        """ensure_collection should create the collection when lookup fails."""
         client = _MissingCollectionClient()
         store = QdrantStore(client=client)  # type: ignore[arg-type]
 
@@ -155,6 +151,7 @@ class TestQdrantStore(unittest.TestCase):
         self.assertEqual(client._vectors.size, 8)
 
     def test_ensure_collection_rejects_size_mismatch(self) -> None:
+        """ensure_collection should reject existing collections with wrong size."""
         client = _WorkingClient()
         client._vectors = models.VectorParams(size=16, distance=models.Distance.COSINE)
         store = QdrantStore(client=client)  # type: ignore[arg-type]
@@ -165,6 +162,7 @@ class TestQdrantStore(unittest.TestCase):
         self.assertIn("vector size mismatch", str(ctx.exception))
 
     def test_upsert_chunk_vectors_sends_minimal_payload(self) -> None:
+        """upsert_chunk_vectors should send stable point ids and minimal payload."""
         client = _WorkingClient()
         store = QdrantStore(client=client)  # type: ignore[arg-type]
 
@@ -188,6 +186,7 @@ class TestQdrantStore(unittest.TestCase):
         self.assertEqual(points[0].payload, {"chunk_id": "doc-1:000000", "document_id": "doc-1", "chunk_index": 0})
 
     def test_search_dense_maps_hits(self) -> None:
+        """search_dense should map Qdrant scored points into DenseSearchHit."""
         store = QdrantStore(client=_WorkingClient())  # type: ignore[arg-type]
 
         hits = store.search_dense(

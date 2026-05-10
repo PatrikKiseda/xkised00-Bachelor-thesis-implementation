@@ -2,16 +2,17 @@
 Author: Patrik Kiseda
 File: tests/test_chunker.py
 Description: Unit tests for recursive chunking with overlap.
+
+The tests focus on stable behavior: empty input, small text, deterministic
+recursive splitting, and overlap continuity. No external services or file system
+fixtures are needed.
 """
 
 from __future__ import annotations
 
-import sys
 import unittest
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
+import helpers
 from app.core.settings import DEFAULT_CHUNK_OVERLAP_CHARS, DEFAULT_CHUNK_SIZE_CHARS
 from app.ingestion.chunker import chunk_text_recursive
 
@@ -25,7 +26,10 @@ SMALL_TEST_OVERLAP = 20
 
 
 class TestChunker(unittest.TestCase):
+    """Behavior checks for recursive chunk splitting and overlap."""
+
     def test_empty_text_returns_empty_chunks(self) -> None:
+        """Whitespace-only input should not create chunks."""
         chunks = chunk_text_recursive(
             "   \n\t  ",
             chunk_size_chars=DEFAULT_SIZE,
@@ -35,6 +39,7 @@ class TestChunker(unittest.TestCase):
         self.assertEqual(chunks, [])
 
     def test_small_text_returns_single_chunk(self) -> None:
+        """Short text should stay as one unchanged chunk."""
         text = "short text for chunking"
 
         chunks = chunk_text_recursive(
@@ -46,6 +51,7 @@ class TestChunker(unittest.TestCase):
         self.assertEqual(chunks, [text])
 
     def test_recursive_chunking_is_deterministic(self) -> None:
+        """Repeated chunking with same input/settings should be stable."""
         text = (
             "Paragraph one. Sentence one and sentence two.\n\n"
             "Paragraph two with more words and more words.\n"
@@ -68,6 +74,7 @@ class TestChunker(unittest.TestCase):
         self.assertTrue(all(len(chunk) <= SMALL_TEST_SIZE for chunk in chunks_one))
 
     def test_overlap_is_applied_between_adjacent_chunks(self) -> None:
+        """Neighboring chunks should share the configured overlap window."""
         text = (
             "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu "
             "nu xi omicron pi rho sigma tau upsilon phi chi psi omega. "

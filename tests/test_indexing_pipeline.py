@@ -2,19 +2,22 @@
 Author: Patrik Kiseda
 File: tests/test_indexing_pipeline.py
 Description: Unit tests for background indexing pipeline with embedding outcomes.
+
+The pipeline is exercised against temporary SQLite databases and stored files.
+Embedding clients and Qdrant stores are fake so the tests can verify success,
+partial failure, all-failure, Qdrant write failure, and extraction failure states
+without external services.
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
+from helpers import suppress_expected_pdf_noise
 from app.embeddings.adapter import EmbeddingBatchResult, EmbeddingItemResult
 from app.ingestion.indexing_pipeline import run_indexing_pipeline
 from app.storage.document_repository import insert_document
@@ -22,12 +25,14 @@ from app.storage.indexing_repository import create_job
 from app.storage.sqlite_schema import initialize_sqlite_schema
 
 
-# _SuccessEmbeddingClient: deterministic test double where all chunks embed successfully.
 class _SuccessEmbeddingClient:
+    """Embedding fake where every chunk gets a valid vector."""
+
     provider = "local"
     model = "test-embedding-model"
 
     def embed_texts(self, texts: list[str]) -> EmbeddingBatchResult:
+        """Return one deterministic success item per input text."""
         return EmbeddingBatchResult(
             provider=self.provider,
             model=self.model,
@@ -38,12 +43,14 @@ class _SuccessEmbeddingClient:
         )
 
 
-# _PartialFailEmbeddingClient: fails every odd chunk index to validate best-effort handling.
 class _PartialFailEmbeddingClient:
+    """Embedding fake that fails every odd chunk index."""
+
     provider = "local"
     model = "test-embedding-model"
 
     def embed_texts(self, texts: list[str]) -> EmbeddingBatchResult:
+        """Return mixed success/failure items to exercise warnings."""
         items: list[EmbeddingItemResult] = []
         for index, text in enumerate(texts):
             if index % 2 == 1:
@@ -62,12 +69,14 @@ class _PartialFailEmbeddingClient:
         return EmbeddingBatchResult(provider=self.provider, model=self.model, items=items)
 
 
-# _AllFailEmbeddingClient: fails every chunk so job should be marked as fail.
 class _AllFailEmbeddingClient:
+    """Embedding fake where every chunk fails."""
+
     provider = "local"
     model = "test-embedding-model"
 
     def embed_texts(self, texts: list[str]) -> EmbeddingBatchResult:
+        """Return failed items for all input texts."""
         return EmbeddingBatchResult(
             provider=self.provider,
             model=self.model,
@@ -83,29 +92,36 @@ class _AllFailEmbeddingClient:
         )
 
 
-# _RecordingQdrantStore: captures dense indexing calls for assertions in pipeline tests.
 class _RecordingQdrantStore:
+    """Qdrant fake that records collection and upsert calls."""
+
     def __init__(self) -> None:
+        """Initialize call recording lists."""
         self.ensure_calls: list[tuple[str, int]] = []
         self.upsert_calls: list[tuple[str, int]] = []
 
     def ensure_collection(self, *, collection_name: str, vector_size: int) -> None:
+        """Record collection validation/creation request."""
         self.ensure_calls.append((collection_name, vector_size))
 
     def upsert_chunk_vectors(self, *, collection_name: str, vectors: list[object]) -> None:
+        """Record dense vector upsert request and vector count."""
         self.upsert_calls.append((collection_name, len(vectors)))
 
 
-# _FailingQdrantStore: simulates qdrant upsert failure after SQLite persistence.
 class _FailingQdrantStore(_RecordingQdrantStore):
+    """Qdrant fake that raises during vector upsert."""
+
     def upsert_chunk_vectors(self, *, collection_name: str, vectors: list[object]) -> None:
+        """Simulate a Qdrant write failure after SQLite persistence."""
         raise RuntimeError("simulated qdrant write failure")
 
 
-# TestIndexingPipeline: verifies chunk persistence, embedding metadata, and job transitions.
 class TestIndexingPipeline(unittest.TestCase):
-    # _prepare_document_and_job: helper to avoid repeating setup boilerplate per test.
+    """Indexing pipeline success/failure state transition tests."""
+
     def _prepare_document_and_job(self, *, temp_path: Path, source_name: str, source_bytes: bytes) -> str:
+        """Create temp DB, source file, document row, and pending job."""
         db_path = str(initialize_sqlite_schema(str(temp_path / "app.db")))
         source_path = temp_path / source_name
         source_path.write_bytes(source_bytes)
@@ -129,8 +145,8 @@ class TestIndexingPipeline(unittest.TestCase):
         )
         return db_path
 
-    # test_create_job_returns_complete_job_record: job row mapping should include id/type/status fields.
     def test_create_job_returns_complete_job_record(self) -> None:
+        """create_job should map the inserted row into a complete JobRecord."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(initialize_sqlite_schema(str(Path(temp_dir) / "app.db")))
 
@@ -147,8 +163,8 @@ class TestIndexingPipeline(unittest.TestCase):
             self.assertEqual(job.status, "pending")
             self.assertEqual(job.document_id, "doc-1")
 
-    # test_success_persists_chunks_and_embedding_payload: all-success embedding keeps success status with stats payload.
     def test_success_persists_chunks_and_embedding_payload(self) -> None:
+        """All-success embedding should persist chunks and success payload."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             db_path = self._prepare_document_and_job(
@@ -212,8 +228,8 @@ class TestIndexingPipeline(unittest.TestCase):
             self.assertEqual(store.ensure_calls, [("documents", 2)])
             self.assertEqual(len(store.upsert_calls), 1)
 
-    # test_partial_embedding_failures_keep_job_success: partial failures should preserve success with warning payload.
     def test_partial_embedding_failures_keep_job_success(self) -> None:
+        """Partial embedding failures should keep job success with warnings."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             db_path = self._prepare_document_and_job(
@@ -273,8 +289,8 @@ class TestIndexingPipeline(unittest.TestCase):
             self.assertEqual(store.ensure_calls, [("documents", 2)])
             self.assertEqual(len(store.upsert_calls), 1)
 
-    # test_all_embedding_failures_mark_job_fail_but_keep_chunks: all failures should fail job but keep persisted chunks.
     def test_all_embedding_failures_mark_job_fail_but_keep_chunks(self) -> None:
+        """All embedding failures should fail the job but keep SQLite chunks."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             db_path = self._prepare_document_and_job(
@@ -329,8 +345,8 @@ class TestIndexingPipeline(unittest.TestCase):
             self.assertEqual(store.ensure_calls, [])
             self.assertEqual(store.upsert_calls, [])
 
-    # test_qdrant_upsert_failure_marks_job_fail: qdrant write errors should fail indexing after sqlite chunk persistence.
     def test_qdrant_upsert_failure_marks_job_fail(self) -> None:
+        """Qdrant write errors should fail after chunk persistence."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             db_path = self._prepare_document_and_job(
@@ -379,8 +395,8 @@ class TestIndexingPipeline(unittest.TestCase):
             self.assertEqual(dense_payload.get("indexed_vectors"), 0)
             self.assertIn("simulated qdrant write failure", dense_payload.get("error", ""))
 
-    # test_failure_marks_job_and_document_as_fail: extraction errors should still fail before embedding step.
     def test_failure_marks_job_and_document_as_fail(self) -> None:
+        """Extraction errors should fail job/document before chunks are created."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             db_path = self._prepare_document_and_job(
@@ -389,19 +405,20 @@ class TestIndexingPipeline(unittest.TestCase):
                 source_bytes=b"not-a-real-pdf",
             )
 
-            outcome = run_indexing_pipeline(
-                db_path=db_path,
-                document_id="doc-1",
-                filename="broken.pdf",
-                source_path=str(temp_path / "broken.pdf"),
-                job_id="job-1",
-                chunk_size_chars=1000,
-                chunk_overlap_chars=150,
-                embedding_client=_SuccessEmbeddingClient(),
-                qdrant_store=_RecordingQdrantStore(),
-                qdrant_collection="documents",
-                qdrant_vector_size=2,
-            )
+            with suppress_expected_pdf_noise():
+                outcome = run_indexing_pipeline(
+                    db_path=db_path,
+                    document_id="doc-1",
+                    filename="broken.pdf",
+                    source_path=str(temp_path / "broken.pdf"),
+                    job_id="job-1",
+                    chunk_size_chars=1000,
+                    chunk_overlap_chars=150,
+                    embedding_client=_SuccessEmbeddingClient(),
+                    qdrant_store=_RecordingQdrantStore(),
+                    qdrant_collection="documents",
+                    qdrant_vector_size=2,
+                )
             self.assertEqual(outcome, "fail")
 
             with sqlite3.connect(db_path) as connection:

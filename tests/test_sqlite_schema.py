@@ -1,27 +1,29 @@
 """
 Author: Patrik Kiseda
 File: tests/test_sqlite_schema.py
-Description: Unit tests for SQLite schema initialization compulsory table check.
+Description: Unit tests for SQLite schema initialization and migration.
+
+The test database is always a temporary SQLite file. The tests verify the base schema,
+FTS5 table, and compatibility path for older documents tables that need new
+metadata columns added.
 """
 
 from __future__ import annotations
 
 import sqlite3
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-# sys.path: allows test imports from src 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
+import helpers
 from app.storage.sqlite_schema import initialize_sqlite_schema
 
 
-# TestSqliteSchema: verifies required tables and FTS5 virtual table are created.
 class TestSqliteSchema(unittest.TestCase):
-    # test_initialize_creates_documents_chunks_jobs_and_fts: checks required schema objects.
+    """Schema initialization and lightweight migration tests."""
+
     def test_initialize_creates_documents_chunks_jobs_and_fts(self) -> None:
+        """Schema initialization should create metadata tables and FTS5 index."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "metadata" / "app.db"
 
@@ -55,10 +57,8 @@ class TestSqliteSchema(unittest.TestCase):
             self.assertIsNotNone(fts_definition)
             self.assertIn("fts5", (fts_definition[0] or "").lower())
 
-    # test_initialize_migrates_existing_documents_table_columns: checks migration column additions.
-    # tests that if the `documents` table already exists (for example, from a previous version of the app), 
-    # the new required columns are added without data loss.
     def test_initialize_migrates_existing_documents_table_columns(self) -> None:
+        """Existing documents table should gain new metadata columns."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "metadata" / "legacy.db"
             db_path.parent.mkdir(parents=True, exist_ok=True)
