@@ -31,12 +31,14 @@ Currently, Docker is primarily for services (especially the vector database).
 
 - `.env.example` - example environment variables for local development
 - `docker-compose.yml` - local infrastructure services (Qdrant)
+- `docker-compose.deploy.yml` - lightweight deployment stack for the app, Qdrant, and Caddy
 - `Makefile` - common local commands (run, test, compose, etc.)
 - `pyproject.toml` - Python project metadata and dependencies managed with `uv`
 - `uv.lock` - locked dependency versions for reproducible environments
 - `src/` - application source code
 - `tests/` - tests 
 - `scripts/` - helper scripts 
+- `deploy/` - small deployment-only files, currently Caddy configuration
 - `docs/` - technical notes /  implementation documentation
 - `data/` - local data (uploads, SQLite DB, temporary files)
 
@@ -322,6 +324,52 @@ Notes:
    - `make app-run`
 6. Open the localhost UI:
    - `http://127.0.0.1:8000/`
+
+## Deployment
+
+The deployment stack is intentionally small:
+
+- `qdrant` stores vectors
+- `app` runs the FastAPI application
+- `web` runs Caddy for Basic Auth and reverse proxying to the app
+
+Prepare environment:
+
+```bash
+cp .env.example .env
+docker run --rm caddy:2.8-alpine caddy hash-password --plaintext 'your-password'
+```
+
+Then set at least these values in `.env`:
+
+```dotenv
+OPENAI_API_KEY=<real-provider-key>
+BASIC_AUTH_USER=<web-username>
+BASIC_AUTH_HASH=<hash-from-caddy>
+WEB_BIND_ADDRESS=127.0.0.1
+WEB_PORT=8090
+```
+
+For a server where another Docker reverse proxy must reach this deployment, use:
+
+```dotenv
+WEB_BIND_ADDRESS=0.0.0.0
+WEB_PORT=8090
+```
+
+Start the deployment:
+
+```bash
+docker compose -f docker-compose.deploy.yml up -d --build
+```
+
+Verify it locally:
+
+```bash
+curl -u "user:your-password" http://127.0.0.1:8090/api/health
+```
+
+An external reverse proxy can point to `WEB_PORT`. Caddy inside this stack still keeps Basic Auth in front of the app.
 
 ### Quick API examples
 
