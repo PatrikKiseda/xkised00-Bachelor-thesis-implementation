@@ -1,9 +1,0 @@
-.env
-.git
-.gitignore
-.venv
-data
-docs
-scripts
-tests
-__pycache__
