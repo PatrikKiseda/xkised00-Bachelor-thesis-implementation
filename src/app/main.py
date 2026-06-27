@@ -9,12 +9,13 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Callable
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse
 
 from app.api.documents import router as documents_router
 from app.api.jobs import router as jobs_router
 from app.api.query import router as query_router
+from app.api.tracking import router as tracking_router
 from app.core.settings import Settings, get_settings
 from app.embeddings.adapter import EmbeddingClient
 from app.embeddings.providers import build_embedding_client
@@ -22,6 +23,7 @@ from app.generation.adapter import GenerationClient
 from app.generation.providers import build_generation_client
 from app.storage.qdrant_store import QdrantStore
 from app.storage.sqlite_schema import initialize_sqlite_schema
+from app.tracking.discord import DiscordUsageTracker
 
 # StoreFactory: typed factory contract used for dependency injection in tests/startup.
 StoreFactory = Callable[[Settings], QdrantStore]
@@ -72,6 +74,10 @@ def create_app(
         app.state.qdrant_store = qdrant_store
         app.state.embedding_client = embedding_client
         app.state.generation_client = generation_client
+        app.state.usage_tracker = DiscordUsageTracker(
+            webhook_url=resolved_settings.thesis_tracking_discord_webhook_url,
+            enabled=resolved_settings.thesis_tracking_enabled,
+        )
         app.state.qdrant_reachable_on_startup = startup_status.reachable
         app.state.qdrant_startup_error = startup_status.error
         yield
@@ -80,16 +86,46 @@ def create_app(
     app.include_router(documents_router)
     app.include_router(jobs_router)
     app.include_router(query_router)
+    app.include_router(tracking_router)
 
     @app.get("/", response_class=HTMLResponse)
-    def localhost_ui() -> HTMLResponse:
+    def localhost_ui(request: Request, background_tasks: BackgroundTasks) -> HTMLResponse:
         """Serve the simple local HTML UI.
 
         Returns:
             HTML response with the local UI file.
         """
+        request.app.state.usage_tracker.track(
+            background_tasks=background_tasks,
+            request=request,
+            event="page_view",
+            details={"page": "showcase"},
+        )
         ui_path = Path(__file__).resolve().parent / "ui" / "index.html"
         return HTMLResponse(content=ui_path.read_text(encoding="utf-8"))
+
+    @app.get("/assets/projekt.pdf")
+    def thesis_pdf(request: Request, background_tasks: BackgroundTasks) -> FileResponse:
+        """Serve the thesis PDF used by the reviewer showcase UI.
+
+        Returns:
+            PDF file response.
+        """
+        request.app.state.usage_tracker.track(
+            background_tasks=background_tasks,
+            request=request,
+            event="pdf_opened",
+            details={"file": "projekt.pdf"},
+        )
+        pdf_path = Path(__file__).resolve().parent / "ui" / "assets" / "projekt.pdf"
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail="Thesis PDF not found.")
+        return FileResponse(
+            path=pdf_path,
+            media_type="application/pdf",
+            filename="projekt.pdf",
+            content_disposition_type="inline",
+        )
 
     @app.get("/api/health")
     def health() -> dict[str, object]:

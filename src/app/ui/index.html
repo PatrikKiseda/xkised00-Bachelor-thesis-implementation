@@ -31,7 +31,7 @@
       line-height: 1.5;
       margin: 0;
       min-height: 100vh;
-      padding: 2rem 1rem 3rem;
+      padding: 0 1rem 3rem;
     }
 
     .app-shell {
@@ -39,7 +39,32 @@
       max-width: 980px;
     }
 
-    header {
+    .app-shell.is-thesis-expanded {
+      max-width: none;
+      width: 100%;
+    }
+
+    .showcase-header {
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      margin: 0 -1rem 1.5rem;
+      padding: 1.25rem 1rem 0;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .showcase-header-inner {
+      margin: 0 auto;
+      max-width: 980px;
+    }
+
+    .showcase-header h1 {
+      font-size: 1.65rem;
+      margin-bottom: 1rem;
+    }
+
+    .app-header {
       margin-bottom: 1.5rem;
     }
 
@@ -50,12 +75,18 @@
       margin-top: 0;
     }
 
+    .showcase-tabs,
     .view-switcher {
       display: flex;
       gap: 0.75rem;
       margin-bottom: 1.5rem;
     }
 
+    .showcase-tabs {
+      margin-bottom: 0;
+    }
+
+    .showcase-tab-button,
     .view-button,
     button,
     input[type="file"]::file-selector-button {
@@ -70,6 +101,7 @@
       transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
     }
 
+    .showcase-tab-button:hover,
     .view-button:hover,
     button:hover,
     input[type="file"]::file-selector-button:hover {
@@ -77,10 +109,21 @@
       transform: translateY(-1px);
     }
 
+    .showcase-tab-button.is-active,
     .view-button.is-active {
       background: #ffffff;
       border-color: var(--accent-strong);
       color: var(--accent);
+    }
+
+    .showcase-tab-button {
+      border-bottom-left-radius: 0;
+      border-bottom-right-radius: 0;
+      margin-bottom: -1px;
+    }
+
+    .showcase-tab-button.is-active {
+      border-bottom-color: #ffffff;
     }
 
     .panel {
@@ -90,6 +133,101 @@
       box-shadow: var(--shadow);
       margin-bottom: 1rem;
       padding: 1rem;
+    }
+
+    .thesis-toolbar {
+      align-items: center;
+      display: flex;
+      gap: 0.75rem;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .theme-switcher {
+      display: flex;
+      gap: 0.4rem;
+    }
+
+    .pdf-actions {
+      align-items: center;
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    .theme-button {
+      border-radius: 999px;
+      padding: 0.45rem 0.8rem;
+    }
+
+    .theme-button.is-active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+
+    .pdf-frame {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      min-height: 82vh;
+      overflow: hidden;
+    }
+
+    .pdf-frame:fullscreen {
+      background: #ffffff;
+      border: 0;
+      border-radius: 0;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    .pdf-viewer {
+      border: 0;
+      display: block;
+      height: 82vh;
+      width: 100%;
+    }
+
+    .pdf-frame:fullscreen .pdf-viewer {
+      height: 100vh;
+    }
+
+    .pdf-fallback {
+      padding: 1rem;
+    }
+
+    .thesis-panel.is-dark {
+      background: #111827;
+      border-color: #374151;
+      color: #f9fafb;
+    }
+
+    .thesis-panel.is-dark .meta,
+    .thesis-panel.is-dark a {
+      color: #d1d5db;
+    }
+
+    .thesis-panel.is-dark .pdf-frame {
+      background: #111827;
+      border-color: #374151;
+    }
+
+    .thesis-panel.is-dark .pdf-viewer {
+      filter: invert(0.92) hue-rotate(180deg) brightness(0.92) contrast(0.95);
+    }
+
+    .link-list {
+      margin: 0 0 1rem;
+      padding-left: 1.2rem;
+    }
+
+    .link-list li {
+      margin-bottom: 0.5rem;
+    }
+
+    a {
+      color: var(--accent);
+      overflow-wrap: anywhere;
     }
 
     form,
@@ -222,108 +360,194 @@
         padding: 1rem 0.75rem 2rem;
       }
 
+      .showcase-tabs,
       .view-switcher,
+      .thesis-toolbar,
+      .pdf-actions,
       .actions {
         flex-direction: column;
       }
 
+      .showcase-tab-button,
       .view-button,
       button {
         width: 100%;
+      }
+
+      .showcase-header {
+        position: static;
+      }
+
+      .theme-switcher {
+        width: 100%;
+      }
+
+      .pdf-actions {
+        align-items: stretch;
+      }
+
+      .theme-button {
+        flex: 1;
+      }
+
+      .pdf-frame,
+      .pdf-viewer {
+        min-height: 78vh;
+        height: 78vh;
       }
     }
   </style>
 </head>
 <body>
-  <main class="app-shell">
-    <header>
-      <h1>RAG client</h1>
-    </header>
+  <header class="showcase-header">
+    <div class="showcase-header-inner">
+      <h1>Bachelor thesis showcase</h1>
+      <nav class="showcase-tabs" aria-label="Reviewer showcase tabs">
+        <button id="appImplementationTabButton" class="showcase-tab-button is-active" type="button" data-showcase-tab="appImplementation">App implementation</button>
+        <button id="thesisTextTabButton" class="showcase-tab-button" type="button" data-showcase-tab="thesisText">Thesis text</button>
+        <button id="readmeTabButton" class="showcase-tab-button" type="button" data-showcase-tab="readme">README</button>
+      </nav>
+    </div>
+  </header>
 
-    <nav class="view-switcher" aria-label="UI views">
-      <button id="queryViewButton" class="view-button is-active" type="button" data-view="query">Query</button>
-      <button id="documentsViewButton" class="view-button" type="button" data-view="documents">Documents</button>
-    </nav>
+  <main id="appShell" class="app-shell">
+    <section id="appImplementationPanel" class="showcase-panel" data-showcase-panel="appImplementation">
+      <header class="app-header">
+        <h2>RAG client</h2>
+      </header>
 
-    <section id="queryView">
-      <form id="queryForm" class="panel">
-        <div>
-          <label for="queryInput">Query</label>
-          <textarea id="queryInput" name="query" placeholder="Ask a question about your indexed documents." required></textarea>
-        </div>
+      <nav class="view-switcher" aria-label="App implementation views">
+        <button id="queryViewButton" class="view-button is-active" type="button" data-view="query">Query</button>
+        <button id="documentsViewButton" class="view-button" type="button" data-view="documents">Documents</button>
+      </nav>
 
-        <div>
-          <label for="modeSelect">Retrieval mode</label>
-          <select id="modeSelect" name="mode">
-            <option value="dense" selected>Dense</option>
-            <option value="lexical">Lexical</option>
-            <option value="hybrid">Hybrid</option>
-          </select>
-        </div>
+      <section id="queryView">
+        <form id="queryForm" class="panel">
+          <div>
+            <label for="queryInput">Query</label>
+            <textarea id="queryInput" name="query" placeholder="Ask a question about your indexed documents." required></textarea>
+          </div>
 
-        <div class="checkbox-row">
-          <input id="includeContext" name="includeContext" type="checkbox" checked>
-          <label for="includeContext">Include retrieved context in prompt</label>
-        </div>
+          <div>
+            <label for="modeSelect">Retrieval mode</label>
+            <select id="modeSelect" name="mode">
+              <option value="dense" selected>Dense</option>
+              <option value="lexical">Lexical</option>
+              <option value="hybrid">Hybrid</option>
+            </select>
+          </div>
 
-        <div class="checkbox-row">
-          <input id="showPromptDebug" name="showPromptDebug" type="checkbox">
-          <label for="showPromptDebug">Show prompt debug</label>
-        </div>
+          <div class="checkbox-row">
+            <input id="includeContext" name="includeContext" type="checkbox" checked>
+            <label for="includeContext">Include retrieved context in prompt</label>
+          </div>
 
-        <div class="actions">
-          <button id="submitButton" type="submit">Run query</button>
-        </div>
-      </form>
+          <div class="checkbox-row">
+            <input id="showPromptDebug" name="showPromptDebug" type="checkbox">
+            <label for="showPromptDebug">Show prompt debug</label>
+          </div>
 
-      <p id="statusMessage" class="status" aria-live="polite"></p>
+          <div class="actions">
+            <button id="submitButton" type="submit">Run query</button>
+          </div>
+        </form>
 
-      <section class="panel">
-        <label for="answerOutput">Generated answer</label>
-        <textarea id="answerOutput" readonly placeholder="The generated answer will appear here."></textarea>
+        <p id="statusMessage" class="status" aria-live="polite"></p>
+
+        <section class="panel">
+          <label for="answerOutput">Generated answer</label>
+          <textarea id="answerOutput" readonly placeholder="The generated answer will appear here."></textarea>
+        </section>
+
+        <section class="panel">
+          <h2>Cited sources</h2>
+          <div id="sourcesOutput">No sources yet.</div>
+        </section>
+
+        <section id="debugSection" class="panel" hidden>
+          <h2>Prompt debug</h2>
+
+          <label for="promptOutput">Final prompt</label>
+          <textarea id="promptOutput" readonly placeholder="The final prompt will appear here when debug is enabled."></textarea>
+
+          <h3>Retrieved chunks</h3>
+          <div id="chunksOutput">No debug chunks yet.</div>
+        </section>
       </section>
 
-      <section class="panel">
-        <h2>Cited sources</h2>
-        <div id="sourcesOutput">No sources yet.</div>
-      </section>
+      <section id="documentsView" hidden>
+        <form id="uploadForm" class="panel">
+          <h2>Add document</h2>
+          <div>
+            <label for="documentFileInput">File</label>
+            <input id="documentFileInput" name="file" type="file" accept=".txt,.md,.pdf" required>
+          </div>
 
-      <section id="debugSection" class="panel" hidden>
-        <h2>Prompt debug</h2>
+          <div class="actions">
+            <button id="uploadButton" type="submit">Upload document</button>
+            <button id="refreshDocumentsButton" type="button">Refresh documents</button>
+          </div>
+        </form>
 
-        <label for="promptOutput">Final prompt</label>
-        <textarea id="promptOutput" readonly placeholder="The final prompt will appear here when debug is enabled."></textarea>
+        <p id="uploadStatusMessage" class="status" aria-live="polite"></p>
 
-        <h3>Retrieved chunks</h3>
-        <div id="chunksOutput">No debug chunks yet.</div>
+        <section class="panel">
+          <h2>Stored documents</h2>
+          <div id="documentsOutput">Loading documents...</div>
+        </section>
       </section>
     </section>
 
-    <section id="documentsView" hidden>
-      <form id="uploadForm" class="panel">
-        <h2>Add document</h2>
+    <section id="thesisTextPanel" class="showcase-panel thesis-panel panel" data-showcase-panel="thesisText" hidden>
+      <div class="thesis-toolbar">
         <div>
-          <label for="documentFileInput">File</label>
-          <input id="documentFileInput" name="file" type="file" accept=".txt,.md,.pdf" required>
+          <h2>Thesis text</h2>
+          <p class="meta">Embedded PDF: projekt.pdf</p>
         </div>
-
-        <div class="actions">
-          <button id="uploadButton" type="submit">Upload document</button>
-          <button id="refreshDocumentsButton" type="button">Refresh documents</button>
+        <div class="pdf-actions">
+          <div class="theme-switcher" aria-label="PDF color mode">
+            <button id="pdfLightButton" class="theme-button is-active" type="button" data-pdf-theme="light">Light</button>
+            <button id="pdfDarkButton" class="theme-button" type="button" data-pdf-theme="dark">Dark</button>
+          </div>
+          <button id="pdfFullscreenButton" type="button">Fullscreen PDF</button>
         </div>
-      </form>
+      </div>
+      <div id="pdfFrame" class="pdf-frame">
+        <object id="thesisPdfViewer" class="pdf-viewer" data="/assets/projekt.pdf" type="application/pdf">
+          <p class="pdf-fallback">
+            The PDF preview is not available in this browser.
+            <a href="/assets/projekt.pdf">Open the thesis PDF</a>.
+          </p>
+        </object>
+      </div>
+    </section>
 
-      <p id="uploadStatusMessage" class="status" aria-live="polite"></p>
-
-      <section class="panel">
-        <h2>Stored documents</h2>
-        <div id="documentsOutput">Loading documents...</div>
-      </section>
+    <section id="readmePanel" class="showcase-panel panel" data-showcase-panel="readme" hidden>
+      <h2>README</h2>
+      <ul class="link-list">
+        <li><a href="https://github.com/PatrikKiseda/xkised00-Bachelor-thesis" rel="noopener noreferrer" target="_blank">Thesis text GitHub repository</a></li>
+        <li><a href="https://github.com/PatrikKiseda/xkised00-Bachelor-thesis-implementation" rel="noopener noreferrer" target="_blank">Thesis implementation GitHub repository</a></li>
+      </ul>
+      <p>
+        These are the GitHub links for the thesis text and thesis implementation.
+        This deployed web functionality is not a part of the submitted bachelor thesis and was created only to make the implementation easier to showcase.
+      </p>
+      <p>
+        The App implementation tab shows what the app looks like when the submitted code, represented by the latest code on the master branch, is deployed.
+      </p>
     </section>
   </main>
 
   <!--This script handles all the interactivity of the UI, including switching views, submitting queries, uploading documents, and rendering results and statuses.-->  
   <script>
+    const showcasePanels = Array.from(document.querySelectorAll("[data-showcase-panel]"));
+    const showcaseTabButtons = Array.from(document.querySelectorAll(".showcase-tab-button"));
+    const appShell = document.getElementById("appShell");
+    const thesisTextPanel = document.getElementById("thesisTextPanel");
+    const pdfFrame = document.getElementById("pdfFrame");
+    const pdfFullscreenButton = document.getElementById("pdfFullscreenButton");
+    const pdfThemeButtons = Array.from(document.querySelectorAll(".theme-button"));
+
     const queryView = document.getElementById("queryView");
     const documentsView = document.getElementById("documentsView");
     const viewButtons = Array.from(document.querySelectorAll(".view-button"));
@@ -349,6 +573,51 @@
     const documentsOutput = document.getElementById("documentsOutput");
 
     const DEFAULT_TOP_K = 5;
+
+    function trackUsage(eventName, details = {}) {
+      const payload = JSON.stringify({
+        event: eventName,
+        details,
+      });
+
+      if (navigator.sendBeacon) {
+        const sent = navigator.sendBeacon("/api/tracking/event", new Blob([payload], { type: "application/json" }));
+        if (sent) {
+          return;
+        }
+      }
+
+      fetch("/api/tracking/event", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {
+        // Tracking is best-effort and must not affect the reviewer UI.
+      });
+    }
+
+    function switchShowcaseTab(tabName) {
+      showcasePanels.forEach((panel) => {
+        panel.hidden = panel.dataset.showcasePanel !== tabName;
+      });
+      appShell.classList.toggle("is-thesis-expanded", tabName === "thesisText");
+
+      showcaseTabButtons.forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.showcaseTab === tabName);
+      });
+    }
+
+    function switchPdfTheme(themeName) {
+      const isDark = themeName === "dark";
+      thesisTextPanel.classList.toggle("is-dark", isDark);
+
+      pdfThemeButtons.forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.pdfTheme === themeName);
+      });
+    }
 
     function setStatus(element, message, tone) {
       element.textContent = message;
@@ -523,10 +792,40 @@
     viewButtons.forEach((button) => {
       button.addEventListener("click", () => {
         switchView(button.dataset.view);
+        trackUsage("view_switch", { view: button.dataset.view });
       });
     });
 
+    showcaseTabButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        switchShowcaseTab(button.dataset.showcaseTab);
+        trackUsage("tab_switch", { tab: button.dataset.showcaseTab });
+      });
+    });
+
+    pdfThemeButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        switchPdfTheme(button.dataset.pdfTheme);
+        trackUsage("pdf_theme", { theme: button.dataset.pdfTheme });
+      });
+    });
+
+    pdfFullscreenButton.addEventListener("click", async () => {
+      trackUsage("pdf_fullscreen_click");
+      if (pdfFrame.requestFullscreen) {
+        try {
+          await pdfFrame.requestFullscreen();
+          return;
+        } catch (error) {
+          // Fall back to a plain PDF tab when fullscreen is blocked by the browser.
+        }
+      }
+
+      window.open("/assets/projekt.pdf", "_blank", "noopener,noreferrer");
+    });
+
     refreshDocumentsButton.addEventListener("click", async () => {
+      trackUsage("documents_refresh");
       setUploadLoadingState(false, "Refreshing documents...", null);
       await loadDocuments();
       setUploadLoadingState(false, "Document list refreshed.", "success");
@@ -647,6 +946,7 @@
       }
     });
 
+    trackUsage("ui_loaded");
     loadDocuments();
   </script>
 </body>

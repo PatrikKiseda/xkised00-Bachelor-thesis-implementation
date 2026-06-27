@@ -86,7 +86,20 @@ async def upload_document(
         )
         raise HTTPException(status_code=500, detail="Failed to store uploaded document.") from exc
 
-    # Adds the indexing pipeline to a list of background tasks to be executed asynchronously. 
+    request.app.state.usage_tracker.track(
+        background_tasks=background_tasks,
+        request=request,
+        event="document_upload",
+        details={
+            "filename": file.filename,
+            "source_type": source_type,
+            "size_bytes": len(content),
+            "document_id": document_id,
+            "job_id": job_id,
+        },
+    )
+
+    # Adds the indexing pipeline to a list of background tasks to be executed asynchronously.
     # Allows the API to return a response immediatelly while the indexing process runs in the background.
     background_tasks.add_task(
         run_indexing_pipeline,

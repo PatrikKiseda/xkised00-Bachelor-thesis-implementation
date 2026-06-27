@@ -9,10 +9,12 @@ and do not need external services.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
@@ -29,6 +31,7 @@ from helpers import (
 )
 from app.main import create_app
 from app.storage.indexing_repository import ChunkUpsert
+from app.tracking import discord as discord_tracking
 
 
 class TestApiWorkflows(unittest.TestCase):
@@ -371,6 +374,99 @@ class TestApiWorkflows(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("RAG client", response.text)
+            self.assertIn("App implementation", response.text)
+            self.assertIn("Thesis text", response.text)
+            self.assertIn("README", response.text)
+            self.assertIn("Fullscreen PDF", response.text)
             self.assertIn("/api/query/answer", response.text)
+            self.assertIn("/assets/projekt.pdf", response.text)
+            self.assertIn("https://github.com/PatrikKiseda/xkised00-Bachelor-thesis", response.text)
+            self.assertIn("https://github.com/PatrikKiseda/xkised00-Bachelor-thesis-implementation", response.text)
+            self.assertIn("not a part of the submitted bachelor thesis", response.text)
             self.assertIn("value=\"lexical\"", response.text)
             self.assertIn("value=\"hybrid\"", response.text)
+
+    def test_usage_tracking_posts_discord_webhook_when_configured(self) -> None:
+        """Usage tracking should send best-effort Discord webhook events."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            app = create_app(
+                settings=build_settings(
+                    sqlite_path=str(temp_path / "app.db"),
+                    storage_dir=str(temp_path / "uploads"),
+                    thesis_tracking_discord_webhook_url="https://discord.com/api/webhooks/test/token",
+                ),
+                store_factory=lambda _: HealthyStore(),  # type: ignore[arg-type]
+            )
+
+            response_context = Mock()
+            response_context.status = 204
+            response_context.__enter__ = Mock(return_value=response_context)
+            response_context.__exit__ = Mock(return_value=None)
+
+            with patch.object(discord_tracking, "urlopen", return_value=response_context) as urlopen_mock:
+                with TestClient(app) as client:
+                    tracking_response = client.post(
+                        "/api/tracking/event",
+                        json={"event": "tab_switch", "details": {"tab": "thesisText"}},
+                        headers={"cf-connecting-ip": "203.0.113.10", "user-agent": "ReviewerBrowser"},
+                    )
+
+            self.assertEqual(tracking_response.status_code, 202)
+            self.assertEqual(urlopen_mock.call_count, 1)
+            request_payload = json.loads(urlopen_mock.call_args.args[0].data.decode("utf-8"))
+            fields = {
+                field["name"]: field["value"]
+                for field in request_payload["embeds"][0]["fields"]
+            }
+            self.assertEqual(fields["event"], "tab_switch")
+            self.assertEqual(fields["client"], "203.0.113.10")
+            self.assertEqual(fields["tab"], "thesisText")
+            self.assertEqual(request_payload["allowed_mentions"], {"parse": []})
+
+    def test_direct_retrieval_query_posts_tracking_event_when_configured(self) -> None:
+        """Direct dense/lexical/hybrid retrieval endpoints should be tracked."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            store = InMemoryDenseStore()
+            app = create_app(
+                settings=build_settings(
+                    sqlite_path=str(temp_path / "app.db"),
+                    storage_dir=str(temp_path / "uploads"),
+                    thesis_tracking_discord_webhook_url="https://discord.com/api/webhooks/test/token",
+                ),
+                store_factory=lambda _: store,  # type: ignore[arg-type]
+            )
+            response_context = Mock()
+            response_context.status = 204
+            response_context.__enter__ = Mock(return_value=response_context)
+            response_context.__exit__ = Mock(return_value=None)
+
+            with patch.object(discord_tracking, "urlopen", return_value=response_context) as urlopen_mock:
+                with TestClient(app) as client:
+                    seed_document_chunks(app.state.sqlite_db_path, chunks=two_ranked_chunks())
+                    store.dense_hits_override = dense_hits_for_two_ranked_chunks()
+                    response = client.post("/api/query/hybrid", json={"query": "alpha beta", "top_k": 2})
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(urlopen_mock.call_count, 1)
+            request_payload = json.loads(urlopen_mock.call_args.args[0].data.decode("utf-8"))
+            fields = {
+                field["name"]: field["value"]
+                for field in request_payload["embeds"][0]["fields"]
+            }
+            self.assertEqual(fields["event"], "retrieval_query")
+            self.assertEqual(fields["mode"], "hybrid")
+            self.assertEqual(fields["hits"], "2")
+
+    def test_thesis_pdf_asset_is_served(self) -> None:
+        """Thesis PDF endpoint should serve the bundled showcase PDF."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = self._create_test_app(temp_dir)
+
+            with TestClient(app) as client:
+                response = client.get("/assets/projekt.pdf")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers["content-type"], "application/pdf")
+            self.assertTrue(response.content.startswith(b"%PDF"))

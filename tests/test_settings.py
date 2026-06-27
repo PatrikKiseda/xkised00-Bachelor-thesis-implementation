@@ -287,3 +287,24 @@ class TestSettings(unittest.TestCase):
                 Settings(_env_file=env_file)
 
         self.assertIn("QDRANT_VECTOR_SIZE must be greater than 0.", str(ctx.exception))
+
+    def test_tracking_webhook_must_be_https_when_present(self) -> None:
+        """Discord tracking webhook should be optional but HTTPS when configured."""
+        valid_settings = helpers.build_settings(
+            thesis_tracking_discord_webhook_url="https://discord.com/api/webhooks/test/token"
+        )
+        blank_settings = helpers.build_settings(thesis_tracking_discord_webhook_url="   ")
+
+        self.assertEqual(
+            valid_settings.thesis_tracking_discord_webhook_url,
+            "https://discord.com/api/webhooks/test/token",
+        )
+        self.assertIsNone(blank_settings.thesis_tracking_discord_webhook_url)
+
+        with self.assertRaises(ValidationError) as ctx:
+            helpers.build_settings(thesis_tracking_discord_webhook_url="http://example.com/webhook")
+
+        self.assertIn(
+            "THESIS_TRACKING_DISCORD_WEBHOOK_URL must start with https://.",
+            str(ctx.exception),
+        )

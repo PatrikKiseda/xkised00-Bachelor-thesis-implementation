@@ -51,6 +51,10 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
       EMBEDDING_API_ENABLED: ${EMBEDDING_API_ENABLED:-true}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env}
+
+      # Optional Discord webhook usage tracking for reviewer activity.
+      THESIS_TRACKING_ENABLED: ${THESIS_TRACKING_ENABLED:-true}
+      THESIS_TRACKING_DISCORD_WEBHOOK_URL: ${THESIS_TRACKING_DISCORD_WEBHOOK_URL:-}
     volumes:
       - app_data:/data
     healthcheck:

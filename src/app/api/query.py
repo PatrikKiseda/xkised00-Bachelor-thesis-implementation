@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from typing import Literal
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.generation.service import AnswerGenerator, resolve_final_prompt
@@ -34,7 +34,11 @@ class AnswerQueryRequest(RetrievalQueryRequest):
 
 
 @router.post("/dense")
-def query_dense(request: Request, payload: RetrievalQueryRequest) -> dict[str, object]:
+def query_dense(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: RetrievalQueryRequest,
+) -> dict[str, object]:
     """Run embedding + dense vector search.
 
     Args:
@@ -44,10 +48,20 @@ def query_dense(request: Request, payload: RetrievalQueryRequest) -> dict[str, o
     Returns:
         API response with hydrated chunk hits.
     """
-    return _run_retrieval_query(request=request, mode="dense", query=payload.query, top_k=payload.top_k)
+    return _run_retrieval_query(
+        request=request,
+        background_tasks=background_tasks,
+        mode="dense",
+        query=payload.query,
+        top_k=payload.top_k,
+    )
 
 @router.post("/lexical")
-def query_lexical(request: Request, payload: RetrievalQueryRequest) -> dict[str, object]:
+def query_lexical(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: RetrievalQueryRequest,
+) -> dict[str, object]:
     """Run lexical search using SQLite FTS5.
 
     Args:
@@ -57,10 +71,20 @@ def query_lexical(request: Request, payload: RetrievalQueryRequest) -> dict[str,
     Returns:
         API response with hits in the shared retrieval shape.
     """
-    return _run_retrieval_query(request=request, mode="lexical", query=payload.query, top_k=payload.top_k)
+    return _run_retrieval_query(
+        request=request,
+        background_tasks=background_tasks,
+        mode="lexical",
+        query=payload.query,
+        top_k=payload.top_k,
+    )
 
 @router.post("/hybrid")
-def query_hybrid(request: Request, payload: RetrievalQueryRequest) -> dict[str, object]:
+def query_hybrid(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: RetrievalQueryRequest,
+) -> dict[str, object]:
     """Run dense + lexical retrieval and merge ranked results with RRF.
 
     Args:
@@ -70,10 +94,20 @@ def query_hybrid(request: Request, payload: RetrievalQueryRequest) -> dict[str, 
     Returns:
         API response with fused chunk hits.
     """
-    return _run_retrieval_query(request=request, mode="hybrid", query=payload.query, top_k=payload.top_k)
+    return _run_retrieval_query(
+        request=request,
+        background_tasks=background_tasks,
+        mode="hybrid",
+        query=payload.query,
+        top_k=payload.top_k,
+    )
 
 @router.post("/answer")
-def query_answer(request: Request, payload: AnswerQueryRequest) -> dict[str, object]:
+def query_answer(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: AnswerQueryRequest,
+) -> dict[str, object]:
     """Run retrieval and generate an answer from the retrieved sources.
 
     Args:
@@ -107,6 +141,19 @@ def query_answer(request: Request, payload: AnswerQueryRequest) -> dict[str, obj
         logger.exception("Failed to generate final answer.")
         raise HTTPException(status_code=502, detail="Failed to generate final answer.") from exc
 
+    request.app.state.usage_tracker.track(
+        background_tasks=background_tasks,
+        request=request,
+        event="query_answer",
+        details={
+            "mode": payload.mode,
+            "top_k": payload.top_k,
+            "include_context": payload.include_context_in_prompt,
+            "sources": len(result.sources),
+            "query_preview": _preview_text(payload.query),
+        },
+    )
+
     return {
         "mode": payload.mode,
         "query": payload.query,
@@ -115,7 +162,11 @@ def query_answer(request: Request, payload: AnswerQueryRequest) -> dict[str, obj
     }
 
 @router.post("/prompt-debug")
-def query_prompt_debug(request: Request, payload: AnswerQueryRequest) -> dict[str, object]:
+def query_prompt_debug(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: AnswerQueryRequest,
+) -> dict[str, object]:
     """Return final prompt without calling the generation service.
 
     Args:
@@ -140,6 +191,19 @@ def query_prompt_debug(request: Request, payload: AnswerQueryRequest) -> dict[st
         include_context_in_prompt=payload.include_context_in_prompt,
     )
 
+    request.app.state.usage_tracker.track(
+        background_tasks=background_tasks,
+        request=request,
+        event="prompt_debug",
+        details={
+            "mode": payload.mode,
+            "top_k": payload.top_k,
+            "include_context": payload.include_context_in_prompt,
+            "sources": len(sources),
+            "query_preview": _preview_text(payload.query),
+        },
+    )
+
     return {
         "mode": payload.mode,
         "query": payload.query,
@@ -151,6 +215,7 @@ def query_prompt_debug(request: Request, payload: AnswerQueryRequest) -> dict[st
 def _run_retrieval_query(
     *,
     request: Request,
+    background_tasks: BackgroundTasks,
     mode: QueryMode,
     query: str,
     top_k: int,
@@ -175,6 +240,17 @@ def _run_retrieval_query(
         qdrant_vector_size=request.app.state.settings.qdrant_vector_size,
     )
     hits = retriever.retrieve(query=query, top_k=top_k)
+    request.app.state.usage_tracker.track(
+        background_tasks=background_tasks,
+        request=request,
+        event="retrieval_query",
+        details={
+            "mode": mode,
+            "top_k": top_k,
+            "hits": len(hits),
+            "query_preview": _preview_text(query),
+        },
+    )
 
     return {
         "mode": mode,
@@ -218,3 +294,11 @@ def _serialize_source(source: RetrievedChunk) -> dict[str, object]:
         "score": source.score,
         "content": source.content,
     }
+
+
+def _preview_text(value: str, max_length: int = 180) -> str:
+    """Return a compact single-line preview for tracking messages."""
+    normalized = " ".join(value.split())
+    if len(normalized) <= max_length:
+        return normalized
+    return f"{normalized[: max_length - 3]}..."

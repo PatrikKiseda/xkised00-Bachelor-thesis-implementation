@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     embedding_api_enabled: bool = True
     openai_api_key: str | None = None
 
+    # Optional lightweight usage tracking for the public reviewer showcase.
+    thesis_tracking_enabled: bool = True
+    thesis_tracking_discord_webhook_url: str | None = None
+
     # model_config: control of how pydantic-settings reads env vars 
     model_config = SettingsConfigDict(
         # Use the repo-local .env explicitly so sibling workspaces don't interfere with each other during development.
@@ -192,6 +196,27 @@ class Settings(BaseSettings):
         if self.chunk_overlap_chars >= self.chunk_size_chars:
             raise ValueError("CHUNK_OVERLAP_CHARS must be smaller than CHUNK_SIZE_CHARS.")
         return self
+
+    @field_validator("thesis_tracking_discord_webhook_url")
+    @classmethod
+    def validate_tracking_webhook_url(cls, value: str | None) -> str | None:
+        """Validate the optional Discord webhook URL.
+
+        Args:
+            value: Raw webhook URL from the environment.
+
+        Returns:
+            Normalized URL or None when tracking delivery is not configured.
+        """
+        if value is None:
+            return None
+
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if not normalized.startswith("https://"):
+            raise ValueError("THESIS_TRACKING_DISCORD_WEBHOOK_URL must start with https://.")
+        return normalized
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
